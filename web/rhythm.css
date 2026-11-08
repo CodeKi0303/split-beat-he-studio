@@ -1,0 +1,20 @@
+.rhythm-settings{display:grid;grid-template-columns:1.6fr .7fr 1fr .7fr 1fr 1fr;gap:14px;align-items:end}
+.rhythm-settings label,.rhythm-hold-settings label{display:flex;flex-direction:column;gap:7px;font-size:12px;color:var(--muted)}
+.rhythm-settings input,.rhythm-settings select,.rhythm-hold-settings input{width:100%;min-width:0}
+.rhythm-hold-settings{display:flex;gap:18px;align-items:end;margin:18px 0}
+.rhythm-hold-settings label{max-width:130px}.rhythm-hold-settings span{color:var(--muted);font-size:12px;padding-bottom:10px}
+.rhythm-toolbar{display:flex;justify-content:space-between;align-items:center;gap:15px;margin-top:22px}
+#rhythmState{min-height:24px;color:var(--accent);font-size:13px}
+.rhythm-chart-frame{border:1px solid var(--line);border-radius:10px;padding:16px;background:#12161d}
+.rhythm-chart-heading{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+#rhythmLive{font-variant-numeric:tabular-nums;color:var(--cyan)}
+#rhythmChart{width:100%;height:310px;display:block;margin-top:10px}
+.rhythm-legend{display:flex;gap:20px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.rhythm-legend span:before{content:'';display:inline-block;width:14px;border-top:3px solid;vertical-align:middle;margin-right:7px}
+.rhythm-legend .depth:before{color:var(--cyan)}.rhythm-legend .pressed:before{color:var(--accent)}.rhythm-legend .sound:before{color:#8594a9}.rhythm-legend .target:before{color:#e8ad72;border-top-style:dashed}
+.rhythm-scrub{display:flex;align-items:center;gap:20px;margin-top:16px;font-size:11px;color:var(--muted)}.rhythm-scrub input{flex:1;min-width:0}
+.rhythm-result-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0 18px}.rhythm-result-actions p{flex:1;min-width:220px;font-size:12px;color:var(--muted)}
+.rhythm-metrics strong{font-size:20px}#rhythmHoldSummary{font-size:13px;color:var(--cyan)}
+#rhythmRows td{font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}#rhythmRows .miss{color:var(--red)}
+@media(max-width:1150px){.rhythm-settings{grid-template-columns:repeat(3,minmax(0,1fr))}.rhythm-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:650px){.rhythm-settings{grid-template-columns:repeat(2,minmax(0,1fr))}.rhythm-toolbar{align-items:stretch;flex-direction:column}.rhythm-hold-settings{flex-wrap:wrap}#rhythmChart{height:270px}.rhythm-chart-frame{padding:10px}.rhythm-legend{gap:10px}}

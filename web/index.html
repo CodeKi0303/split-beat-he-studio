@@ -1,0 +1,650 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Split-Beat HE Studio · 키보드 설정</title>
+    <link rel="stylesheet" href="style.css?v=studio-rhythm1" />
+    <link rel="stylesheet" href="rhythm.css?v=studio-rhythm1" />
+    <link rel="stylesheet" href="binding-picker.css?v=studio-chords1" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-icon">S<span>/</span>S</span>
+        <div>Split-Beat HE Studio<small>내 손에 맞추는 키보드</small></div>
+      </div>
+      <div class="device-card">
+        <span class="device-dot"></span
+        ><strong id="deviceName">C86 Split Hall</strong
+        ><small id="mode">연결 안 됨</small
+        ><button id="connect">키보드 연결</button
+        ><button id="disconnect" class="ghost" disabled>연결 종료</button>
+      </div>
+      <nav aria-label="설정 메뉴">
+        <button class="nav active" data-tab="mapping" aria-selected="true">
+          <span>⌘</span> 키 매핑
+        </button>
+        <button class="nav" data-tab="performance" aria-selected="false">
+          <span>↕</span> 작동점 · RT
+        </button>
+        <button class="nav" data-tab="calibration" aria-selected="false">
+          <span>◎</span> 캘리브레이션
+        </button>
+        <button class="nav" data-tab="diagnostics" aria-selected="false">
+          <span>⌁</span> 센서 진단
+        </button>
+        <button class="nav" data-tab="rhythm" aria-selected="false">
+          <span>♫</span> 리듬 · RT 측정
+        </button>
+        <button class="nav" data-tab="profiles" aria-selected="false">
+          <span>▤</span> 프로필
+        </button>
+      </nav>
+      <div class="sidebar-bottom">
+        <strong>NKRO</strong><small id="timing">센서 연결 대기</small>
+        <small><a href="update.html">펌웨어 업데이트</a></small>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <div>
+          <h1 id="pageTitle">키 매핑</h1>
+        </div>
+        <div class="header-actions">
+          <span id="outputState" class="pill">출력 꺼짐</span
+          ><button id="outputOff" class="secondary" disabled>출력 끄기</button
+          ><button id="outputOn" class="secondary" disabled>출력 켜기</button
+          ><button id="save" disabled>키보드에 저장</button>
+        </div>
+      </header>
+      <div id="notice" role="status" aria-live="polite">
+        키보드를 연결하고 설정할 키를 선택하세요.
+      </div>
+      <p id="releaseNotice" role="status" hidden>
+        <span id="releaseLeft" hidden><span id="releaseVersion"></span> <a href="update.html?target=left">왼쪽 업데이트</a> · </span>
+        <a id="releaseRight" href="update.html?target=right">오른쪽 버전 확인</a>
+      </p>
+      <section class="keyboard-panel">
+        <div class="board-heading">
+          <div>
+            <strong id="selectionLabel">왼쪽 CAPS</strong
+            ><span id="selectionType" class="pill">Hall</span>
+          </div>
+          <div class="board-options">
+            <label class="inline"
+              >보기
+              <select id="sideView">
+                <option value="both">양쪽 키보드</option>
+                <option value="left">왼쪽만</option>
+                <option value="right">오른쪽만</option>
+              </select></label
+            ><button id="refresh" class="ghost" disabled>설정 다시 읽기</button>
+          </div>
+        </div>
+        <div id="batchBanner" class="batch-banner" hidden>
+          <div>
+            <strong id="batchBannerTitle">전체 Hall 보정</strong
+            ><span id="batchBannerCount"></span>
+          </div>
+          <div>
+            <button id="batchQuickApply" disabled>감지된 키 적용</button
+            ><button id="batchQuickCancel" class="ghost">취소</button>
+          </div>
+          <progress id="batchBannerProgress" value="0" max="1"></progress>
+        </div>
+        <div id="performanceSelectionToolbar" class="selection-toolbar" aria-label="Hall 키 선택" hidden>
+          <label class="selection-toggle">
+            <input id="multiSelectHall" type="checkbox" /> 여러 키 선택
+          </label>
+          <strong id="performanceSelectionCount" aria-live="polite">1개 선택</strong>
+          <div class="selection-actions">
+            <button id="selectAllHall" class="ghost" type="button">전체</button>
+            <button id="selectLeftHall" class="ghost" type="button">왼쪽</button>
+            <button id="selectRightHall" class="ghost" type="button">오른쪽</button>
+            <button id="clearHallSelection" class="ghost" type="button">선택 해제</button>
+          </div>
+          <p id="performanceSelectionHelp" hidden></p>
+        </div>
+        <div class="halves">
+          <div class="half" data-side="left">
+            <div class="half-label">
+              LEFT <span id="leftFresh">연결 대기</span>
+            </div>
+            <div id="leftKeys" class="keyboard" aria-label="왼쪽 키보드"></div>
+          </div>
+          <div class="half" data-side="right">
+            <div class="half-label">
+              RIGHT <span id="rightFresh">연결 대기</span>
+            </div>
+            <div
+              id="rightKeys"
+              class="keyboard"
+              aria-label="오른쪽 키보드"
+            ></div>
+          </div>
+        </div>
+        <div class="board-footer">
+          <span
+            ><i class="legend hall"></i> Hall
+            <i class="legend digital"></i> 일반 스위치
+            <i class="legend encoder"></i> 휠 / 노브</span
+          ><span id="calProgress">보정 0 / 14</span
+          ><span id="dirty">장치 연결 대기</span>
+        </div>
+      </section>
+      <section id="mapping" class="workspace">
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">01 / REMAP</p>
+            <h2 id="bindingTitle">선택한 입력의 동작</h2>
+          </div>
+          <span id="bindingPreview" class="mapping-preview" aria-live="polite">—</span>
+        </div>
+        <form id="bindingForm">
+          <div id="bindingModes" class="binding-modes" role="group" aria-label="출력 종류">
+            <button type="button" class="ghost" data-binding-mode="1" aria-pressed="true">키보드</button>
+            <button type="button" class="ghost" data-binding-mode="5" aria-pressed="false">마우스</button>
+            <button type="button" class="ghost" data-binding-mode="4" aria-pressed="false">미디어</button>
+            <button type="button" class="ghost" data-binding-mode="0" aria-pressed="false">사용 안 함</button>
+          </div>
+          <p id="mappingHelp" class="mapping-help muted">Shift + 클릭으로 조합을 만들 수 있습니다.</p>
+          <div id="bindingPicker" aria-label="출력 선택"></div>
+          <p id="mappingFeedback" class="warning" role="status" hidden></p>
+          <p id="mappingCompatibility" class="warning" hidden></p>
+          <div class="form-actions">
+            <button id="applyBinding" disabled>이 키에 적용</button
+            ><span>적용 후 ‘키보드에 저장’</span>
+          </div>
+        </form>
+      </section>
+      <section id="performance" class="workspace" hidden>
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">02 / ACTUATION</p>
+            <h2>작동점 · RT · 데드존</h2>
+          </div>
+          <span class="pill">Hall 키 전용</span>
+        </div>
+        <div class="hall-only">
+          <div class="travel-setup">
+            <label
+              >스위치 총 이동거리<select id="travelPreset">
+                <option value="">직접 입력</option>
+                <option value="3.3">3.30 mm</option>
+                <option value="3.4">3.40 mm</option>
+                <option value="3.5">3.50 mm</option>
+                <option value="3.8">3.80 mm</option>
+                <option value="4">4.00 mm</option>
+              </select></label
+            ><label
+              >전체 스트로크 (mm)<input
+                id="totalTravel"
+                type="number"
+                min="0.1"
+                max="10"
+                step="0.01"
+                value="4.00" /></label
+            ><button id="applyTravel" class="secondary">
+              이동거리 적용</button
+            ><button id="applyTravelAll" class="secondary">
+              전체 키에 사용
+            </button>
+          </div>
+          <div class="travel-setup curve-setup">
+            <label>거리 보정 곡선<select id="curveId" form="keyForm">
+              <option value="" hidden>혼합</option>
+              <option value="0">선형</option>
+              <option value="1">Owlab Ti HE · 근사</option>
+            </select></label>
+            <button id="owlabPreset" class="secondary" type="button">Owlab Ti HE · 3.4 mm</button>
+            <details class="curve-help"><summary>다른 축에 사용</summary>
+              <p>같은 곡선을 총 이동거리에 비례해 환산합니다. 공개 OW Ti 표를 바탕으로 한 근사이며, 축·자석·기판에 따른 실제 거리 차이는 남을 수 있습니다. 키별 ADC 보정 끝점은 유지합니다.</p>
+            </details>
+          </div>
+          <p id="curveCompatibility" class="warning" hidden></p>
+          <div class="performance-grid">
+            <div class="travel-visual">
+              <div class="travel-track">
+                <div id="deadzoneBand"></div>
+                <div id="bottomDeadzoneBand"></div>
+                <div id="travelFill"></div>
+                <div id="actuationLine"><span>작동점</span></div>
+              </div>
+              <strong id="liveTravel">— mm</strong
+              ><small id="liveRaw">ADC —</small
+              ><small>실시간 추정 이동량</small>
+            </div>
+            <form id="keyForm">
+              <div class="checks">
+                <label><input id="enabled" type="checkbox" /> 키 활성화</label
+                ><label><input id="rt" type="checkbox" /> 래피드 트리거</label>
+              </div>
+              <div class="fields">
+                <label class="actuation-field"
+                  >작동 지점
+                  <div class="range-pair">
+                    <input
+                      id="actuationRange"
+                      type="range"
+                      min="0.01"
+                      max="4"
+                      step="0.01"
+                      value="0.8"
+                    /><input
+                      id="actuation"
+                      type="number"
+                      min="0.01"
+                      max="4"
+                      step="0.01"
+                      value="0.8"
+                      required
+                    /><b>mm</b>
+                  </div></label
+                >
+                <label
+                  >눌림 RT
+                  <div class="range-pair">
+                    <input
+                      id="rtPressRange"
+                      type="range"
+                      min="0.01"
+                      max="4"
+                      step="0.01"
+                      value="0.2"
+                    /><input
+                      id="rtPress"
+                      type="number"
+                      min="0.01"
+                      max="4"
+                      step="0.01"
+                      value="0.2"
+                      required
+                    /><b>mm</b>
+                  </div></label
+                >
+                <label
+                  >복귀 RT
+                  <div class="range-pair">
+                    <input
+                      id="rtReleaseRange"
+                      type="range"
+                      min="0.01"
+                      max="4"
+                      step="0.01"
+                      value="0.2"
+                    /><input
+                      id="rtRelease"
+                      type="number"
+                      min="0.01"
+                      max="4"
+                      step="0.01"
+                      value="0.2"
+                      required
+                    /><b>mm</b>
+                  </div></label
+                >
+                <label
+                  >상단 데드존
+                  <div class="range-pair">
+                    <input
+                      id="topDeadzoneRange"
+                      type="range"
+                      min="0"
+                      max="4"
+                      step="0.01"
+                      value="0.08"
+                    /><input
+                      id="topDeadzone"
+                      type="number"
+                      min="0"
+                      max="4"
+                      step="0.01"
+                      value="0.08"
+                      required
+                    /><b>mm</b>
+                  </div></label
+                >
+                <label
+                  >하단 데드존
+                  <div class="range-pair">
+                    <input
+                      id="bottomDeadzoneRange"
+                      type="range"
+                      min="0"
+                      max="4"
+                      step="0.01"
+                      value="0"
+                    /><input
+                      id="bottomDeadzone"
+                      type="number"
+                      min="0"
+                      max="4"
+                      step="0.01"
+                      value="0"
+                      required
+                    /><b>mm</b>
+                  </div></label
+                >
+              </div>
+              <p id="bottomDeadzoneCompatibility" class="muted" hidden></p>
+              <details>
+                <summary>센서 노이즈 설정</summary>
+                <label
+                  >이 범위 내의 작은 센서 변화를 무시 (ADC 카운트)<input
+                    id="noise"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value="5"
+                    required
+                /></label>
+                <p>
+                  원시 ADC 0–100 카운트. 거리 설정과 별개로, 응답과 떨림 억제의
+                  균형을 조절합니다.
+                </p>
+              </details>
+              <details class="inline-help">
+                <summary>설정 도움말</summary>
+                <dl class="setting-help">
+                  <dt>작동 지점</dt><dd>처음 입력이 시작되는 깊이입니다.</dd>
+                  <dt>눌림 / 복귀 RT</dt><dd>다시 누를 때 재입력하고, 놓을 때 해제하는 이동량입니다.</dd>
+                  <dt>상단 데드존</dt><dd>완전히 놓은 위치의 작은 흔들림을 무시하는 구간입니다.</dd>
+                  <dt>하단 데드존</dt><dd>RT를 켰을 때 바닥 구간에서 눌림을 유지합니다. 0 mm로 설정하면 사용하지 않습니다.</dd>
+                  <dt>총 이동거리</dt><dd>키캡 높이가 아닌 스위치의 전체 스트로크입니다. 브라우저와 내보낸 프로필에 보관합니다.</dd>
+                </dl>
+                <p>mm 값은 키별 보정 끝점·선택한 거리 곡선·총 이동거리를 사용한 추정값입니다. Owlab Ti HE 곡선은 공개 표를 환산한 근사이며, 0.01 mm 입력 간격이 실제 측정 정확도를 뜻하지는 않습니다.</p>
+                <p id="quantization" class="muted"></p>
+              </details>
+              <div class="form-actions">
+                <button id="applyKey" disabled>선택한 키에 적용</button
+                ><span id="performanceGate"
+                  >먼저 캘리브레이션을 완료하세요.</span
+                >
+              </div>
+            </form>
+          </div>
+        </div>
+        <div class="non-hall-message" hidden>
+          작동점과 RT를 설정할 Hall 키를 선택하세요.
+        </div>
+      </section>
+      <section id="calibration" class="workspace" hidden>
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">03 / CALIBRATE</p>
+            <h2>전체 Hall 키를 한 번에 보정</h2>
+          </div>
+          <span class="pill">일반 키 · 휠 제외</span>
+        </div>
+        <p>
+          손을 떼고 시작한 뒤, 각 키를 끝까지 눌러 주세요. 누른 키부터 적용할 수 있습니다.
+        </p>
+        <div class="cal-steps batch-steps">
+          <div id="batchRestStep">
+            <b>1</b>
+            <h3>손을 떼고 3초 수집</h3>
+            <button id="batchStart" disabled>전체 보정 시작 · 3초</button>
+          </div>
+          <div id="batchPressStep">
+            <b>2</b>
+            <h3>각 키를 끝까지 누르세요</h3>
+            <p>
+              순서와 관계없이 누르면 색이 바뀝니다.
+            </p>
+            <strong id="batchCounts">감지 0 / 14 · 적용 가능 0</strong>
+          </div>
+          <div id="batchApplyStep">
+            <b>3</b>
+            <h3>누른 키부터 적용</h3>
+            <button id="batchApply" disabled>감지된 키 적용</button>
+          </div>
+        </div>
+        <progress id="batchProgress" value="0" max="1"></progress>
+        <p id="batchState" role="status">
+          보정 대기
+        </p>
+        <div class="batch-legend">
+          <span><i class="legend batch-wait"></i> 아직 안 누름</span
+          ><span><i class="legend batch-detected"></i> 움직임 감지</span
+          ><span><i class="legend batch-ready"></i> 적용 가능</span
+          ><span><i class="legend batch-applied"></i> RAM 적용 확인</span>
+        </div>
+        <div
+          id="batchKeyStates"
+          class="batch-key-states"
+          aria-label="Hall 키별 수집 상태"
+        ></div>
+        <details class="inline-help">
+          <summary>보정 도움말</summary>
+          <p id="batchHint">
+            노란색은 움직임 감지, 초록색은 적용 가능한 보정 범위입니다.
+            초록색이어도 실제 바닥까지 눌러 주세요.
+          </p>
+        </details>
+        <div class="form-actions">
+          <button id="batchCancel" class="ghost" disabled>
+            수집 취소 / 표시 지우기</button
+          ><span
+            >보정 완료 후 ‘키보드에 저장’</span
+          >
+        </div>
+        <details id="individualCalibration">
+          <summary>고급 · 기존 방식으로 한 키씩 보정</summary>
+          <div class="panel-title">
+            <h3 id="keyTitle">선택 키 캘리브레이션</h3>
+            <button id="nextKey" class="secondary">
+              다음 미보정 Hall 키 →
+            </button>
+          </div>
+          <div class="hall-only">
+            <p id="endpoints">먼저 연결해 주세요.</p>
+            <div class="cal-steps">
+              <div id="stepRest">
+                <b>1</b>
+                <h3>손을 떼세요</h3>
+                <p>키를 완전히 놓고 시작합니다.</p>
+                <button id="rest" disabled>놓은 위치 수집</button>
+              </div>
+              <div id="stepPressed">
+                <b>2</b>
+                <h3>끝까지 누르세요</h3>
+                <p>키를 누른 채 버튼을 클릭하세요.</p>
+                <button id="pressed" disabled>누른 위치 수집</button>
+              </div>
+              <div id="stepCommit">
+                <b>3</b>
+                <h3>보정을 적용하세요</h3>
+                <p>적용 후 다음 키로 넘어갈 수 있습니다.</p>
+                <button id="commit" disabled>보정 적용</button>
+              </div>
+            </div>
+            <div class="form-actions">
+              <button id="cancelCal" class="ghost" disabled>보정 취소</button
+              ><span id="calState" role="status">보정 대기</span>
+            </div>
+            <p>
+              각 위치에서 안정된 새 센서 샘플 256개를 모읍니다. 보정은 RAM에
+              적용됩니다.
+            </p>
+          </div>
+          <div class="non-hall-message" hidden>
+            개별 보정은 위 그림에서 Hall 키를 선택하세요. 전체 보정은 선택한
+            입력과 관계없이 14개 Hall 키를 수집합니다.
+          </div>
+        </details>
+      </section>
+      <section id="diagnostics" class="workspace" hidden>
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">04 / SENSOR LAB</p>
+            <h2>떨림과 키 간 간섭</h2>
+          </div>
+          <button id="clearStats" class="secondary">통계 초기화</button>
+        </div>
+        <div class="hall-only">
+          <p>최근 10초 · 키를 가만히 놓고 확인하세요.</p>
+          <label><input id="diagnosticAdc" type="checkbox" /> ADC 보고값 보기</label>
+          <div class="metrics">
+            <div><small data-diagnostic-stat="평균">평균 (mm)</small><strong id="mean">—</strong></div>
+            <div>
+              <small data-diagnostic-stat="분산">분산 (mm²)</small><strong id="variance">—</strong>
+            </div>
+            <div>
+              <small data-diagnostic-stat="표준편차">표준편차 (mm)</small><strong id="stddev">—</strong>
+            </div>
+            <div>
+              <small data-diagnostic-stat="최대–최소">최대–최소 (mm)</small><strong id="peakToPeak">—</strong>
+            </div>
+          </div>
+          <div class="charts">
+            <div>
+              <h3>시간별 센서값 <span id="diagnosticSignalLabel">키 판정에 쓰는 이동량 · 평균 · ±1σ</span></h3>
+              <canvas
+                id="signalChart"
+                role="img"
+                aria-label="최근 10초 이동량과 평균 및 표준편차"
+              ></canvas>
+            </div>
+            <div>
+              <h3>값의 분포 <span>표본 히스토그램</span></h3>
+              <canvas
+                id="histogram"
+                role="img"
+                aria-label="이동량 표본 분포"
+              ></canvas>
+            </div>
+          </div>
+          <p id="sampleInfo" class="muted">샘플 대기</p>
+          <div class="interference">
+            <h3>다른 키에 미치는 영향</h3>
+            <p>
+              기준 수집 후 선택한 키만 끝까지 누르고 측정하세요.
+            </p>
+            <div class="form-actions">
+              <button id="baseline" disabled>① 손을 떼고 기준 수집 (2초)</button
+              ><button id="measurePress" disabled>
+                ② 선택 키를 누르고 측정 (2초)</button
+              ><button id="cancelMeasure" class="ghost" disabled>
+                측정 지우기
+              </button>
+            </div>
+            <p id="measureState" role="status">
+              측정 전 · 키 출력은 측정 시작 시 꺼집니다.
+            </p>
+            <progress id="measureProgress" value="0" max="1"></progress>
+            <p id="interferenceSummary"></p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>다른 Hall 키</th>
+                    <th>평균 변화 ADC</th>
+                    <th>최대 변화 ADC</th>
+                    <th>전체 이동 대비</th>
+                    <th>추정 변화 mm</th>
+                  </tr>
+                </thead>
+                <tbody id="interferenceRows"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="non-hall-message" hidden>
+          센서 진단을 보려면 위 그림에서 Hall 키를 선택하세요.
+        </div>
+        <details>
+          <summary>측정 안내 · 통신 상태</summary>
+          <p>브라우저가 받은 샘플을 집계합니다. 전체 ADC 샘플이나 전 대역 전기 노이즈 측정은 아닙니다. 키 간 변화는 자성·전원·기구 영향 중 원인을 구분하지 않습니다.</p>
+          <p id="linkStatus">연결 대기</p>
+        </details>
+      </section>
+      <section id="rhythm" class="workspace" hidden>
+        <div class="panel-title">
+          <div><p class="eyebrow">05 / RHYTHM LAB</p><h2>소리와 손끝의 타이밍</h2></div>
+          <span id="rhythmKey" class="pill">Hall 키 선택</span>
+        </div>
+        <div class="rhythm-settings">
+          <label>연습<select id="rhythmMode"><option value="tap">메트로놈 · 반복 입력</option><option value="hold">피아노 · 유지와 해제</option></select></label>
+          <label>BPM<input id="rhythmBpm" type="number" min="20" max="300" step="1" value="120" /></label>
+          <label>한 마디 분할<select id="rhythmDivision"><option value="4">4비트</option><option value="8" selected>8비트</option><option value="12">12비트</option><option value="16">16비트</option><option value="24">24비트</option><option value="32">32비트</option></select></label>
+          <label>길이<select id="rhythmBars"><option value="2">2마디</option><option value="4" selected>4마디</option><option value="8">8마디</option><option value="16">16마디</option></select></label>
+          <label>타이밍 보정 (ms)<input id="rhythmOffset" type="number" min="-300" max="300" step="1" value="0" /></label>
+          <label>소리 크기<input id="rhythmVolume" type="range" min="0" max="0.5" step="0.01" value="0.12" /></label>
+        </div>
+        <div id="rhythmHoldSettings" class="rhythm-hold-settings" hidden>
+          <label>유지할 칸<input id="rhythmHoldSteps" type="number" min="1" max="32" value="3" step="1" /></label>
+          <label>쉴 칸<input id="rhythmGapSteps" type="number" min="1" max="32" value="1" step="1" /></label>
+          <span>음이 이어지는 동안 유지하고, 끝나면 놓으세요.</span>
+        </div>
+        <div class="rhythm-toolbar">
+          <span id="rhythmGridInfo" class="muted"></span>
+          <div><button id="rhythmStart" disabled>측정 시작 · 키 출력 끄기</button> <button id="rhythmStop" class="secondary" disabled>정지</button></div>
+        </div>
+        <p id="rhythmState" role="status" aria-live="polite">보정된 Hall 키를 선택하세요. 네 박자 준비 후 시작합니다.</p>
+        <div class="rhythm-chart-frame">
+          <div class="rhythm-chart-heading"><strong>누름 깊이와 판정</strong><span id="rhythmLive">—</span></div>
+          <canvas id="rhythmChart" role="img" aria-label="시간에 따른 누름 깊이, 소리 목표와 실제 눌림 해제 판정"></canvas>
+          <div class="rhythm-legend"><span class="depth">누름 깊이</span><span class="pressed">실제 눌림</span><span class="sound">소리 기준</span><span class="target">보정 목표</span></div>
+          <label id="rhythmScrubLabel" class="rhythm-scrub" hidden>기록 살펴보기<input id="rhythmScrub" type="range" min="0" max="1" step="10" value="0" /></label>
+        </div>
+        <p id="rhythmSampleInfo" class="muted">측정 대기</p>
+        <div id="rhythmSummary" class="metrics rhythm-metrics">
+          <div><small>눌림 오차 · 중앙값</small><strong id="rhythmPressError">—</strong></div>
+          <div><small>해제 오차 · 중앙값</small><strong id="rhythmReleaseError">—</strong></div>
+          <div><small>관측한 눌림 / 해제</small><strong id="rhythmEdges">—</strong></div>
+          <div><small>목표 깊이 · 참고값</small><strong id="rhythmTargetDepth">—</strong></div>
+        </div>
+        <p id="rhythmHoldSummary"></p>
+        <div class="rhythm-result-actions">
+          <p id="rhythmOffsetSuggestion">처음에는 0ms로 시작하세요. 반복 입력 후 개인 보정값을 제안합니다.</p>
+          <button id="rhythmApplyOffset" class="secondary" disabled>제안값으로 다음 측정</button>
+          <button id="rhythmReanalyze" class="secondary" disabled>보정값으로 기록 재분석</button>
+          <button id="rhythmExport" class="ghost" disabled>측정 JSON 내보내기</button>
+        </div>
+        <details id="rhythmDetails"><summary>박자별 결과</summary>
+          <div class="table-scroll"><table><thead><tr><th>목표</th><th>판정</th><th>소리 대비</th><th>보정 후</th><th>목표 깊이</th><th>관측 구간</th></tr></thead><tbody id="rhythmRows"></tbody></table></div>
+        </details>
+        <details class="inline-help"><summary>보정값과 측정 해상도</summary>
+          <p>+ 보정은 소리보다 늦게, − 보정은 소리보다 먼저 판정되는 것을 목표로 합니다. 개인 제안값에는 오디오 경로·입력 관측·타이밍 습관이 함께 포함됩니다. 리듬게임의 보정값 부호와 크기는 게임마다 다를 수 있습니다.</p>
+          <p>깊이 그래프는 선택한 거리 곡선과 총 이동거리에 따른 mm 추정입니다. 눌림·해제는 펌웨어의 실제 RT 상태를 관측합니다. 짧은 변화가 샘플 사이에 발생하면 놓칠 수 있으며, 표시된 관측 구간보다 작은 시간차를 확정할 수 없습니다. 소리 시점은 Web Audio 출력 추정값이며 스피커·헤드폰의 실측 시각은 아닙니다.</p>
+          <p>반복 입력은 각 소리에 누르고 다음 소리까지 간격의 절반 지점에서 놓는 목표를 표시합니다. 유지 테스트는 소리가 이어지는 동안 입력이 유지되는지, 끊기는 시점에 해제되는지 비교합니다. 추천값은 자동으로 키보드에 적용하거나 저장하지 않습니다.</p>
+        </details>
+      </section>
+      <section id="profiles" class="workspace" hidden>
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">05 / PROFILES</p>
+            <h2>설정을 보관하고 불러오기</h2>
+          </div>
+        </div>
+        <p>
+          보정·매핑·RT·이동거리를 함께 보관합니다.
+        </p>
+        <div class="form-actions">
+          <button id="export" disabled>프로필 내보내기</button
+          ><button id="import" class="secondary" disabled>
+            프로필 가져오기</button
+          ><input
+            id="profileFile"
+            type="file"
+            accept="application/json,.json"
+            hidden
+          />
+        </div>
+        <details class="inline-help">
+          <summary>프로필 도움말</summary>
+          <p>가져오기는 RAM에 적용하며 키 출력을 끕니다. 적용 후 ‘키보드에 저장’을 눌러 주세요. 다른 브라우저에서도 같은 mm 표기를 쓰려면 프로필을 가져오세요.</p>
+        </details>
+        <p>키보드 저장 세대 <strong id="generation">—</strong></p>
+      </section>
+      <details class="worklog">
+        <summary>작업 기록</summary>
+        <pre id="log"></pre>
+      </details>
+    </main>
+    <script type="module" src="app.mjs?v=studio-release1"></script>
+  </body>
+</html>

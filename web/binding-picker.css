@@ -1,0 +1,177 @@
+.binding-picker,
+.binding-picker-keyboard {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+.binding-picker-scroll {
+  overflow-x: auto;
+  padding: 4px 4px 10px;
+  scrollbar-color: var(--line) var(--bg);
+}
+
+.binding-picker-board {
+  --binding-key-height: 37px;
+  display: grid;
+  grid-template-columns: minmax(0, 15fr) minmax(0, 3fr) minmax(0, 4fr);
+  gap: 7px;
+  min-inline-size: 800px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+
+.binding-picker-keyblock,
+.binding-picker-pad {
+  display: grid;
+  grid-template-rows: repeat(6, var(--binding-key-height));
+}
+
+.binding-picker-keyrow {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+}
+
+.binding-picker-main .binding-picker-keyrow {
+  grid-template-columns: repeat(60, minmax(0, 1fr));
+}
+
+.binding-picker-pad {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+button.binding-picker-key {
+  min-inline-size: 0;
+  padding: 4px 5px;
+  border-color: var(--line);
+  border-radius: 5px;
+  background: #242a33;
+  color: #e6e9ed;
+  font-size: 11px;
+  line-height: 1.15;
+}
+
+.binding-picker-board .binding-picker-key {
+  margin: 2px;
+  padding-inline: 2px;
+}
+
+button.binding-picker-modifier {
+  background: #2c3540;
+}
+
+button.binding-picker-key[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #192310;
+}
+
+.binding-picker-extra {
+  margin: 4px 4px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.binding-picker-extra summary {
+  padding-block: 6px;
+  cursor: pointer;
+}
+
+.binding-picker-extra-keys,
+.binding-picker-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.binding-picker-extra-keys .binding-picker-key,
+.binding-picker-media .binding-picker-key {
+  min-block-size: 34px;
+  padding-inline: 9px;
+}
+
+.binding-picker-mouse {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  max-inline-size: 360px;
+  padding-block: 4px;
+}
+
+.binding-picker-mouse-shell {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  inline-size: min(100%, 208px);
+  min-block-size: 232px;
+  padding: 5px 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 46% 46% 43% 43% / 36% 36% 45% 45%;
+  background: var(--bg);
+}
+
+.binding-picker-mouse-face {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 3px;
+}
+
+button.binding-picker-mouse-left {
+  border-radius: 68px 6px 7px 6px;
+}
+
+button.binding-picker-mouse-right {
+  border-radius: 6px 68px 6px 7px;
+}
+
+.binding-picker-mouse-wheel,
+.binding-picker-mouse-thumb {
+  display: grid;
+  gap: 3px;
+}
+
+.binding-picker-mouse-wheel .binding-picker-key {
+  min-inline-size: 40px;
+  min-block-size: 35px;
+}
+
+.binding-picker-mouse-thumb {
+  justify-self: start;
+  margin-inline-start: 6px;
+}
+
+.binding-picker-mouse-thumb .binding-picker-key {
+  min-block-size: 31px;
+}
+
+.binding-picker-mouse-pan {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.binding-picker-mouse-pan .binding-picker-key {
+  min-inline-size: 40px;
+  min-block-size: 34px;
+}
+
+@media (pointer: coarse) {
+  .binding-picker-board {
+    --binding-key-height: 48px;
+    min-inline-size: 1090px;
+  }
+
+  .binding-picker-extra-keys .binding-picker-key,
+  .binding-picker-media .binding-picker-key,
+  .binding-picker-mouse .binding-picker-key {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+
+  .binding-picker-mouse-shell {
+    min-block-size: 255px;
+  }
+}

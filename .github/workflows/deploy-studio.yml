@@ -1,0 +1,89 @@
+name: Deploy Split-Beat HE Studio
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: split-beat-he-studio-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (!github.event.release.prerelease && !github.event.release.draft) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Stage latest stable web and firmware releases
+        id: stage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          studio=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [[ -n "$EVENT_TAG" && "$EVENT_TAG" != "$studio" ]]; then exit 0; fi
+          git merge-base --is-ancestor "refs/tags/$studio" refs/remotes/origin/main
+          git checkout --detach "refs/tags/$studio"
+          firmware_repo=CodeKi0303/split-beat-he-firmware
+          firmware=$(gh api "repos/$firmware_repo/releases/latest" --jq .tag_name)
+          encoded=$(jq -rn --arg tag "$firmware" '$tag | @uri')
+          status=$(gh api "repos/$firmware_repo/compare/$encoded...main" --jq .status)
+          [[ "$status" == identical || "$status" == ahead ]]
+          assets=$(mktemp -d)
+          gh release download --repo "$firmware_repo" --dir "$assets" \
+            --pattern c86-left-app.fw.json --pattern c86-right-app.fw.json -- "$firmware"
+          for test in tests/*_test.mjs; do node "$test"; done
+          output=$(node tools/stage_studio.mjs "$assets" "$firmware")
+          {
+            echo "output=$output"
+            echo "studio_tag=$studio"
+            echo "firmware_tag=$firmware"
+          } >> "$GITHUB_OUTPUT"
+      - name: Deploy to Cloudflare Pages
+        if: steps.stage.outputs.output != ''
+        shell: bash
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          STUDIO_TAG: ${{ steps.stage.outputs.studio_tag }}
+          FIRMWARE_TAG: ${{ steps.stage.outputs.firmware_tag }}
+          STUDIO_OUTPUT: ${{ steps.stage.outputs.output }}
+        run: |
+          latest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          [[ "$latest" == "$STUDIO_TAG" ]] || exit 0
+          latest_firmware=$(gh api repos/CodeKi0303/split-beat-he-firmware/releases/latest --jq .tag_name)
+          [[ "$latest_firmware" == "$FIRMWARE_TAG" ]] || exit 0
+          : "${CLOUDFLARE_ACCOUNT_ID:?Configure the GitHub repository variable}"
+          : "${CLOUDFLARE_API_TOKEN:?Configure the GitHub repository secret}"
+          projects="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects"
+          auth=(-H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" -H 'Content-Type: application/json')
+          result=$(mktemp)
+          status=$(curl --silent --show-error -o "$result" -w '%{http_code}' "${auth[@]}" "$projects/split-studio")
+          case "$status" in
+            200) jq -e '.success and (.result.production_branch == "main") and (.result.source == null)' "$result" >/dev/null ;;
+            404) curl --fail-with-body --silent --show-error "${auth[@]}" \
+              --data '{"name":"split-studio","production_branch":"main"}' "$projects" | jq -e '.success' >/dev/null ;;
+            *) jq -c '.errors' "$result" >&2; exit 1 ;;
+          esac
+          npx --yes wrangler@4.158.0 pages deploy "$STUDIO_OUTPUT" \
+            --project-name split-studio --branch main
+          domains="$projects/split-studio/domains"
+          current=$(curl --fail-with-body --silent --show-error "${auth[@]}" "$domains")
+          if ! jq -e '.result | any(.name == "studio.codekilab.com")' <<< "$current" >/dev/null; then
+            curl --fail-with-body --silent --show-error "${auth[@]}" \
+              --data '{"name":"studio.codekilab.com"}' "$domains" | jq -e '.success' >/dev/null
+          fi

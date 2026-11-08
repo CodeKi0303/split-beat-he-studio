@@ -1,0 +1,7 @@
+* text=auto eol=lf
+# Preserve exact upstream bytes to keep provenance hashes valid on checkout.
+third_party/** -text -whitespace
+*.png -text
+*.jpg -text
+*.bin -text
+*.zip -text
