@@ -1,13 +1,60 @@
 import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 globalThis.crypto ??= webcrypto;
-import { FW, FirmwareClient, FirmwareStatusError, validateFirmware, crc32 } from "../web/fw-protocol.mjs";
+import { FW, FirmwareClient, FirmwareStatusError, validateFirmware, validateFirmwarePair, crc32 } from "../web/fw-protocol.mjs";
+import { validateRelease } from "../web/studio-release.mjs";
 import { FirmwareDemoTransport, demoPackage } from "../web/fw-demo.mjs";
 import { FirmwareHIDTransport } from "../web/updater.mjs";
 import { packet, unpackPacket, VID, PID, USAGE_PAGE, USAGE } from "../web/protocol.mjs";
 assert.equal(crc32(new TextEncoder().encode("123456789")), 0xcbf43926);
 const left = await demoPackage(), right = await demoPackage(1);
 const client = (t) => new FirmwareClient(t, { delay: async () => {} });
+const pairOptions = { confirmed: true, expectedUids: ["01".repeat(12), "02".repeat(12)], official: true };
+const installed = (p) => ({ size: p.image_size, crc: p.crc32, version: p.version_number });
+const erasedRoles = (t) => t.calls.filter(({ op }) => op === FW.BEGIN).map(({ role }) => role);
+{
+  const t = new FirmwareDemoTransport(), c = client(t);
+  const after = await c.updatePair([right, left], pairOptions);
+  assert.deepEqual(erasedRoles(t), [1, 0]);
+  assert.deepEqual(after.map(({ version }) => version), [left.version_number, right.version_number]);
+  assert.equal(t.calls.at(-1).op, FW.RUN);
+  t.calls.length = 0;
+  await c.updatePair([left, right], pairOptions);
+  assert.deepEqual(erasedRoles(t), []);
+}
+for (const role of [0, 1]) {
+  const t = new FirmwareDemoTransport();
+  Object.assign(t.boards[role], installed(role ? right : left));
+  await client(t).updatePair([left, right], pairOptions);
+  assert.deepEqual(erasedRoles(t), [1 - role]);
+}
+{
+  const t = new FirmwareDemoTransport();
+  Object.assign(t.boards[0], { mode: 0, flags: 1 });
+  await client(t).updatePair([left, right], pairOptions);
+  assert.deepEqual(erasedRoles(t), [1, 0]);
+}
+for (const scenario of ["wrong-right-uid", "newer-left", "interrupted-left", "invalid-right"]) {
+  const t = new FirmwareDemoTransport(), c = client(t);
+  const options = structuredClone(pairOptions);
+  let files = [left, right];
+  if (scenario === "wrong-right-uid") options.expectedUids[1] = "ff".repeat(12);
+  if (scenario === "newer-left") t.boards[0].version++;
+  if (scenario === "interrupted-left") t.boards[0].session = 42;
+  if (scenario === "invalid-right") files = [left, { ...right, sha256: "0".repeat(64) }];
+  await assert.rejects(c.updatePair(files, options));
+  assert.deepEqual(erasedRoles(t), [], scenario);
+}
+await assert.rejects(validateFirmwarePair([left]), /모두/);
+await assert.rejects(validateFirmwarePair([left, left]), /하나씩/);
+await assert.rejects(validateFirmwarePair([left, { ...right, version: "0.3.1" }]), /버전/);
+{
+  const entry = { version: "0.3.0", versionNumber: left.version_number, bytes: 1000, sha256: "a".repeat(64) };
+  const release = { schema: "split-studio-release-v1", hardware: 86, firmware: { left: entry, right: { ...entry } } };
+  assert.equal(validateRelease(release), release);
+  release.firmware.right = { ...entry, version: "0.3.1", versionNumber: entry.versionNumber + 1 };
+  assert.throws(() => validateRelease(release), /좌우/);
+}
 for (const role of [0, 1]) {
   const t = new FirmwareDemoTransport(), c = client(t), p = role ? right : left;
   const result = await c.update(p, { target: role, confirmed: true, fullReadback: true, session: 0x12345678 });
@@ -65,6 +112,11 @@ for (const fault of ["old", "uncertain-begin", "failed-write", "bad-read", "wron
   assert(t.calls.filter((r) => r.op === FW.BEGIN).length <= 1, fault);
   assert(!t.calls.some((r) => r.op === FW.RUN), fault);
   if (["old", "wrong-uid"].includes(fault)) assert(!t.calls.some((r) => r.op === FW.BEGIN));
+}
+{
+  const t = new FaultTransport("uncertain-begin");
+  await assert.rejects(client(t).updatePair([left, right], pairOptions), /BEGIN/);
+  assert.deepEqual(erasedRoles(t), [1]);
 }
 const old = client(new FaultTransport("old"));
 await assert.rejects(old.info(), (e) => e instanceof FirmwareStatusError && /SWD/.test(e.message));

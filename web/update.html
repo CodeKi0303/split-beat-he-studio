@@ -13,24 +13,23 @@
   <p>Studio에서 필요한 설정을 먼저 <strong>키보드에 저장</strong>하고 연결을 종료하세요. 업데이트는 저장된 설정 영역을 보존하지만 저장하지 않은 RAM 설정은 재시작 때 사라집니다. 이 화면은 설정을 자동 저장하거나 키 출력을 켜지 않습니다.</p>
   <div class="grid">
     <section class="card"><h2>1. 대상과 패키지</h2>
-      <label class="field">업데이트할 보드<select id="target"><option value="0">왼쪽 · PC USB 직접 연결</option><option value="1">오른쪽 · 왼쪽을 통한 중계</option></select></label>
       <p id="releaseStatus" class="muted" role="status">정식 릴리스 확인 중</p>
-      <button id="releaseFile" type="button" disabled>정식 릴리스 파일 선택</button>
-      <label class="field">빌드에서 생성한 .fw.json<input id="file" type="file" accept=".json,application/json"></label>
+      <button id="releaseFile" type="button" disabled>좌우 정식 릴리스 불러오기</button>
+      <label class="field">같은 버전의 좌우 .fw.json 파일<input id="file" type="file" accept=".json,application/json" multiple></label>
       <pre id="package">선택한 파일 없음</pre><p class="muted">크기, CRC32, SHA256, 앱 내부 좌우 식별자를 검사합니다. 해시 검사는 파일 손상 검사이며 게시자 서명 인증은 아닙니다.</p>
     </section>
-    <section class="card"><h2>2. 장치 확인</h2><p id="inspectHint">연결은 업데이트 기능과 보드 정보를 읽습니다.</p>
-      <button id="connect">연결 + 대상 확인</button><button id="disconnect" class="secondary" disabled>연결 종료</button>
+    <section class="card"><h2>2. 장치 확인</h2><p>양쪽 버전을 읽는 동안 왼쪽이 중계 모드로 전환됩니다.</p>
+      <button id="connect">연결 + 양쪽 확인</button><button id="disconnect" class="secondary" disabled>연결 종료</button>
       <pre id="device">연결되지 않음</pre>
     </section>
   </div>
   <section class="card"><h2>3. 기록 및 검증</h2>
     <label class="check"><input id="readback" type="checkbox">기록 후 Flash 전체 읽기 대조 추가 (시간이 더 걸립니다). 기본 검증도 장치의 전체 앱 CRC와 커밋 정보 확인을 포함합니다.</label>
-    <label class="check"><input id="agree" type="checkbox">선택한 보드의 기존 앱을 지우고 이 패키지를 기록합니다. 설정을 미리 저장했으며, 기록 중 USB·좌우 전원을 유지하겠습니다.</label>
-    <button id="update" disabled>선택한 보드 업데이트</button><button id="leave" class="secondary" disabled>왼쪽 업데이트·중계 모드 종료</button>
-    <p class="muted">기록 도중 오류·중단이 발생했다면 모든 보드 전원을 완전히 분리했다가 다시 연결한 후 새로 시작하세요. 연결 종료 버튼만으로 기존 기록 세션은 초기화되지 않습니다. 자동 삭제·재개는 하지 않습니다. 초기 부팅부가 정상 설치되었다는 전제이며, 실물 전원 차단 시험은 아직 수행하지 않았습니다.</p>
+    <label class="check"><input id="agree" type="checkbox">필요한 쪽에 펌웨어를 기록합니다. 설정을 저장했으며, 기록 중 USB와 좌우 연결을 유지하겠습니다.</label>
+    <button id="update" disabled>좌우 업데이트</button><button id="leave" class="secondary" disabled>왼쪽 업데이트·중계 모드 종료</button>
+    <p class="muted">오른쪽부터 기록합니다. 이미 같은 이미지가 실행 중인 쪽은 건너뜁니다. 도중에 끊겼다면 양쪽 전원을 완전히 분리했다가 연결한 뒤 같은 파일로 다시 확인하세요.</p>
     <progress id="progress" value="0" max="1"></progress><p id="status" role="status" aria-live="polite">파일과 장치를 확인하세요.</p><p id="error" role="alert"></p>
   </section>
   <footer>WebHID · 선택한 파일은 브라우저에서 읽어 USB로 전송합니다.</footer>
-  <script type="module" src="updater.mjs?v=studio-release1"></script>
+  <script type="module" src="updater.mjs?v=studio-release2"></script>
 </main></body></html>

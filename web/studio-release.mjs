@@ -19,6 +19,8 @@ export function validateRelease(data) {
     if (!version || entry.versionNumber !== version || !/^[a-f0-9]{64}$/.test(entry.sha256) ||
         !Number.isInteger(entry.bytes) || entry.bytes < 1 || entry.bytes > MAX_PACKAGE_BYTES) throw Error("릴리스 펌웨어 정보 오류");
   }
+  const { left, right } = data.firmware;
+  if (left.versionNumber !== right.versionNumber || left.version !== right.version) throw Error("릴리스 좌우 펌웨어 버전이 다릅니다.");
   return data;
 }
 

@@ -692,9 +692,10 @@ async function showFirmwareRelease(data) {
   const release = await studioRelease;
   const installed = firmwareVersionNumber(data.major, data.minor, data.patch);
   if (!client || info !== data || !release || installed === null) return;
-  $("releaseLeft").hidden = release.firmware.left.versionNumber <= installed;
-  $("releaseVersion").textContent = `왼쪽 펌웨어 v${release.firmware.left.version} 사용 가능`;
-  $("releaseRight").textContent = `오른쪽 v${release.firmware.right.version} · 버전 확인`;
+  const latest = release.firmware.left;
+  $("releaseVersion").textContent = latest.versionNumber > installed
+    ? `좌우 펌웨어 업데이트 v${latest.version} 사용 가능`
+    : `좌우 정식 펌웨어 v${latest.version}`;
   $("releaseNotice").hidden = false;
 }
 async function refresh() {

@@ -26,7 +26,10 @@ export class FirmwareDemoTransport {
     else if (op === FW.WRITE) { if (v.getUint32(0, true) !== b.session || v.getUint32(4, true) !== b.next) status = 4; else { b.image.set(p.payload.subarray(8), b.next); b.next += 32; } }
     else if (op === FW.COMMIT) { if (b.next !== b.size || crc32(b.image) !== b.crc) status = 8; else b.flags |= 2; }
     else if (op === FW.READ) out = b.image.slice(v.getUint32(0, true), v.getUint32(0, true) + p.payload[4]);
-    else if (op === FW.RUN) { if (!(b.flags & 2)) status = 7; else b.mode = 1; }
+    else if (op === FW.RUN) {
+      if (!(b.flags & 2)) status = 7;
+      else if (!b.mode) { b.mode = 1; b.session = 0; b.next = 0; }
+    }
     else status = 1;
     return packet(p.op | 128, p.seq, out, status);
   }

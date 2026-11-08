@@ -35,6 +35,24 @@ export function decodeFirmwareInfo(data) {
   if (data[0] !== 1 || data[1] !== 86 || data[2] > 1 || data[3] > 1 || v.getUint32(8, true) !== APP_BASE || v.getUint32(12, true) !== MAX_IMAGE) throw Error("호환되지 않는 업데이트 프로토콜/보드/메모리 배치");
   return { hardware: data[1], role: data[2], mode: data[3], flashKiB: v.getUint16(4, true), flags: v.getUint16(6, true), base: v.getUint32(8, true), max: v.getUint32(12, true), size: v.getUint32(16, true), crc: v.getUint32(20, true), version: v.getUint32(24, true), session: v.getUint32(28, true), nextOffset: v.getUint32(32, true), uid: data.slice(36, 48), uidHex: hex(data.subarray(36, 48)) };
 }
+export async function validateFirmwarePair(sources) {
+  if (sources.length !== 2) throw Error("왼쪽·오른쪽 펌웨어 파일이 모두 필요합니다.");
+  const packages = await Promise.all(sources.map(async (source) => {
+    const { manifest, role } = await validateFirmware(source);
+    return { manifest, role };
+  }));
+  packages.sort((a, b) => a.role - b.role);
+  const [left, right] = packages;
+  if (left.role !== 0 || right.role !== 1) throw Error("왼쪽 파일과 오른쪽 파일을 하나씩 선택하세요.");
+  if (left.manifest.version_number !== right.manifest.version_number || left.manifest.version !== right.manifest.version) {
+    throw Error("왼쪽과 오른쪽 펌웨어 버전이 다릅니다.");
+  }
+  return packages;
+}
+
+const matchesFirmware = (info, manifest) => info.mode === 1 && Boolean(info.flags & 2) &&
+  info.version === manifest.version_number && info.size === manifest.image_size && info.crc === manifest.crc32;
+
 export class FirmwareStatusError extends Error { constructor(status, op) { super(`${STATUS_NAMES[status] || status} (0x${op.toString(16)})${status === 1 ? ": 기존 펌웨어에는 USB 업데이트가 없습니다. 양쪽 새 부팅부를 SWD로 한 번 설치해야 합니다." : ""}`); this.status = status; } }
 export class FirmwareClient {
   constructor(transport, { progress = () => {}, delay = sleep, clock = Date.now } = {}) { this.transport = transport; this.seq = 0; this.progress = progress; this.delay = delay; this.clock = clock; this.running = false; }
@@ -85,7 +103,33 @@ export class FirmwareClient {
     return this.waitMode(target, mode, uid);
   }
   async leaveMaintenance() { if (this.running) throw Error("기록 중에는 종료할 수 없습니다."); return this.request(FW.RUN, token); }
-  async update(source, { target, confirmed = false, fullReadback = false, session, expectedUid, onlyNewer = false } = {}) {
+  async inspectPair(expectedUids) {
+    const left = await this.info(0);
+    this.checkTarget(left, 0, expectedUids?.[0]);
+    const right = await this.info(1);
+    this.checkTarget(right, 1, expectedUids?.[1]);
+    return [left, right];
+  }
+  async updatePair(sources, { confirmed = false, fullReadback = false, expectedUids, official = false } = {}) {
+    if (!confirmed || expectedUids?.length !== 2 || !expectedUids.every(Boolean)) throw Error("양쪽 장치 확인과 명시적 업데이트 동의가 필요합니다.");
+    const packages = await validateFirmwarePair(sources);
+    const before = await this.inspectPair(expectedUids);
+    for (const { role, manifest } of packages) {
+      if (before[role].session) throw Error("이전 기록 세션이 남아 있습니다. 모든 보드 전원을 분리했다가 다시 연결하세요.");
+      if (official && (before[role].flags & 2) && before[role].version > manifest.version_number) {
+        throw Error("한쪽에 정식 릴리스보다 새 버전이 설치되어 있습니다. 양쪽 기록을 중지했습니다.");
+      }
+    }
+    for (const { role, manifest } of packages.slice().reverse()) {
+      if (matchesFirmware(before[role], manifest)) continue;
+      await this.update(manifest, { target: role, confirmed, fullReadback, expectedUid: expectedUids[role], resumeLeft: false });
+    }
+    const after = await this.inspectPair(expectedUids);
+    if (!packages.every(({ role, manifest }) => matchesFirmware(after[role], manifest))) throw Error("양쪽 앱의 최종 버전·CRC 확인 실패");
+    await this.leaveMaintenance();
+    return after;
+  }
+  async update(source, { target, confirmed = false, fullReadback = false, session, expectedUid, onlyNewer = false, resumeLeft = true } = {}) {
     if (!confirmed) throw Error("명시적 업데이트 확인이 필요합니다.");
     if (this.running) throw Error("업데이트가 이미 진행 중입니다.");
     this.running = true;
@@ -132,7 +176,7 @@ export class FirmwareClient {
       this.progress("검증 완료 · 새 앱 시작", 0.99);
       const after = await this.changeMode(FW.RUN, target, uid, 1);
       if (!(after.flags & 2) || after.version !== m.version_number || after.size !== m.image_size || after.crc !== m.crc32) throw Error("새 앱 시작 후 버전·CRC 확인 실패");
-      if (target) await this.request(FW.RUN, token); // Leave left relay maintenance, with key output still disabled.
+      if (target && resumeLeft) await this.request(FW.RUN, token); // A paired update may still need the left bootloader.
       this.progress("업데이트와 새 앱 확인 완료 · 키 출력은 꺼진 상태", 1);
       return after;
     } finally { this.running = false; }
