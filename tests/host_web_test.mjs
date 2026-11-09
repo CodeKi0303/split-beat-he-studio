@@ -43,7 +43,7 @@ for (const identified of [false, true]) {
   let calls = 0;
   const guarded = new KeyboardClient({ exchange: async () => { calls++; throw Error("unexpected transport I/O"); } });
   guarded.identified = identified;
-  for (const op of [...Array.from({length:7}, (_, i) => 0x30+i), ...Array.from({length:7}, (_, i) => 0x50+i), 0x3f, 0x47, 0, 11, 255, true, 1.5])
+  for (const op of [...Array.from({length:7}, (_, i) => 0x30+i), ...Array.from({length:7}, (_, i) => 0x50+i), 0x3f, 0x4a, 0, 11, 255, true, 1.5])
     await assert.rejects(guarded.request(op, new TextEncoder().encode("UPD3")), /전용 업데이터/);
   assert.equal(calls, 0);
   assert.equal(guarded.seq, 0);

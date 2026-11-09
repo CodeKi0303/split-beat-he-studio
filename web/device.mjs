@@ -15,10 +15,14 @@ import {
   decodeInfo,
   decodeStatus,
   CAP_SAVE_OUTPUT,
+  CAP_ADC_TUNING,
+  CAP_ADC_PAIR,
+  ADC_SCAN_RATES,
+  ADC_WINDOWS,
   integer,
   requireBindingCapability,
   requireKeyCapability,
-} from "./protocol.mjs?v=studio-owlab1";
+} from "./protocol.mjs?v=studio-adc-pair1";
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // Native HID open/close promises are not cancellable. Share a per-object
 // barrier across transport instances so a late cleanup cannot close a new
@@ -241,7 +245,7 @@ export class KeyboardClient {
   async request(op, payload = new Uint8Array(), timeout = 1500) {
     // FirmwareClient owns update confirmation and sequencing. Right update
     // INFO also pauses scan/output, so it must not enter through this client.
-    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || op === 0x40 || op === 0x41 || op === 0x42 || op === 0x43 || op === 0x44 || op === 0x45 || op === 0x46))
+    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR)))
       throw Error("지원하지 않는 설정 명령입니다. 펌웨어 업데이트는 전용 업데이터를 사용하세요.");
     if ([4, 5, 6, 7, 8, 10].includes(op) && !this.identified) {
       this.deviceInfo = decodeInfo(await this.request(OP.INFO));
@@ -279,6 +283,38 @@ export class KeyboardClient {
       );
       this.outputEnabled = r.output_enabled;
       return r;
+    });
+  }
+  adcTuning(rate, window, { paired = false } = {}) {
+    return this.run(async () => {
+      if (!(this.deviceInfo?.capabilities & CAP_ADC_TUNING)) throw Error("이 펌웨어는 ADC 설정을 지원하지 않습니다.");
+      if (paired && !(this.deviceInfo.capabilities & CAP_ADC_PAIR)) throw Error("이 펌웨어는 좌우 동시 ADC 설정을 지원하지 않습니다.");
+      const writing = paired || rate !== undefined || window !== undefined;
+      if (writing && (!ADC_SCAN_RATES.includes(rate) || !ADC_WINDOWS.includes(window))) throw Error("지원하지 않는 스캔레이트 또는 이동평균입니다.");
+      const payload = new Uint8Array(writing ? 5 : 0);
+      if (writing) {
+        new DataView(payload.buffer).setUint32(0, rate, true);
+        payload[4] = window;
+      }
+      const reply = await this.request(paired ? OP.ADC_PAIR : OP.ADC_TUNING, payload);
+      if (reply.length !== 5) throw Error("ADC 설정 응답 길이 오류");
+      const appliedRate = new DataView(reply.buffer, reply.byteOffset, reply.byteLength).getUint32(0, true);
+      const appliedWindow = reply[4];
+      if (!ADC_SCAN_RATES.includes(appliedRate) || !ADC_WINDOWS.includes(appliedWindow) ||
+          (writing && (appliedRate !== rate || appliedWindow !== window))) throw Error("ADC 설정 읽기 대조 실패");
+      return { rate: appliedRate, window: appliedWindow };
+    });
+  }
+  adcCompare(key) {
+    integer(key, 0, 6, "왼쪽 Hall 키");
+    return this.run(async () => {
+      if (!(this.deviceInfo?.capabilities & CAP_ADC_TUNING)) throw Error("이 펌웨어는 ADC 비교를 지원하지 않습니다.");
+      const reply = await this.request(OP.ADC_COMPARE, new Uint8Array([key]), 180);
+      if (reply.length !== 12 || reply[0] !== key || !ADC_WINDOWS.slice(1).includes(reply[1])) throw Error("ADC 비교 응답 오류");
+      const view = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
+      const [before, after, decision] = [6, 8, 10].map((offset) => view.getUint16(offset, true));
+      if (Math.max(before, after, decision) > 4095) throw Error("ADC 비교 값 범위 오류");
+      return { sequence: view.getUint32(2, true), before, after, decision };
     });
   }
   async _config(read = (op, payload) => this.request(op, payload)) {

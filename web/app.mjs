@@ -10,7 +10,7 @@ import {
   compatible,
   WebHIDTransport,
   KeyboardClient,
-} from "./device.mjs?v=studio-save-output1";
+} from "./device.mjs?v=studio-adc-pair1";
 import {
   VID,
   PID,
@@ -20,7 +20,9 @@ import {
   CAP_BOTTOM_DEADZONE,
   CAP_HALL_CURVE,
   CAP_KEY_CHORD,
-} from "./protocol.mjs?v=studio-chords1";
+  CAP_ADC_TUNING,
+  CAP_ADC_PAIR,
+} from "./protocol.mjs?v=studio-adc-pair1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
@@ -74,6 +76,11 @@ let latest = [null, null],
 const telemetry = new TelemetryStore(),
   measure = new InterferenceSession();
 const batch = new BatchCalibration();
+let adcComparison = [], lastAdcComparison = -Infinity;
+const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TUNING);
+const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
+const pairedAdcScope = () => adcPairSupported() && $("adcScope").value === "both";
+const comparingAdc = () => adcTuningSupported() && selected < 7 && $("diagnosticAdcCompare").checked;
 const selectedHall = new Set([0]), performanceDirty = new Set();
 const performanceTargets = () =>
   hall() ? [...selectedHall].sort((a, b) => a - b) : [];
@@ -525,6 +532,13 @@ function controls() {
     !batchActive();
   const calibrationAllowed =
     connected && !busy && !measuring() && !batchActive();
+  $("adcTuning").hidden = !adcTuningSupported();
+  $("adcScopeOption").hidden = !adcPairSupported();
+  $("adcCompareOption").hidden = !adcTuningSupported() || selected >= 7;
+  $("adcCompareLegend").hidden = !comparingAdc();
+  $("applyAdcTuning").disabled = !mutable || !!latest[0]?.output_enabled || (pairedAdcScope() && !latest[1]?.fresh);
+  $("applyAdcTuning").textContent = pairedAdcScope() ? "좌우에 적용" : "왼쪽에 적용";
+  $("applyAdcTuning").title = pairedAdcScope() && !latest[1]?.fresh ? "오른쪽 키보드 연결이 필요합니다." : "";
   for (const id of ["outputOff", "save", "refresh", "export", "import"])
     $(id).disabled = !mutable;
   $("outputOn").disabled =
@@ -648,6 +662,7 @@ function clearTelemetry() {
   batchOutcome = null;
   latest = [null, null];
   telemetry.clear();
+  adcComparison = [];
   measure.reset();
   drawnMeasurement = null;
   calStage = null;
@@ -701,8 +716,29 @@ async function showFirmwareRelease(data) {
 async function refresh() {
   profile = await client.getConfig();
   infoView(await client.info());
+  if (adcTuningSupported()) showAdcTuning(await client.adcTuning());
   renderSelection();
 }
+function showAdcTuning({ rate, window }, paired = false) {
+  $("adcScanRate").value = String(rate);
+  $("adcWindow").value = String(window);
+  $("adcTuningResult").textContent = `${paired ? "좌우" : "왼쪽"} · ${rate / 1000} kHz · ${window === 0 ? "기존 설정 (R만 8프레임)" : window === 1 ? "Raw" : `${window}프레임`}`;
+}
+$("adcScope").onchange = controls;
+$("applyAdcTuning").onclick = () => action(async () => {
+  const paired = pairedAdcScope();
+  let applied;
+  try {
+    applied = await client.adcTuning(Number($("adcScanRate").value), Number($("adcWindow").value), { paired });
+  } catch (error) {
+    if (paired) $("adcTuningResult").textContent = "좌우 적용을 확인하지 못했습니다. 오른쪽 연결을 확인하고 다시 적용하세요.";
+    throw error;
+  }
+  telemetry.clear();
+  adcComparison = [];
+  showAdcTuning(applied, paired);
+  infoView(await client.info());
+}, "ADC 설정 적용 완료 · 키 출력 꺼짐");
 function hallTravelLabel(id) {
   const status = latest[INPUTS[id].side];
   if (!status) return "Hall";
@@ -792,7 +828,20 @@ async function poll() {
         }
       }
     }
-    if (activeTab === "diagnostics") renderDiagnostics();
+    if (activeTab === "diagnostics") {
+      if (!fast && !batchActive() && !calibrationActive() && comparingAdc() && performance.now() - lastAdcComparison >= 100) {
+        const key = selected, time = performance.now();
+        lastAdcComparison = time;
+        try {
+          const sample = await client.adcCompare(key);
+          if (!adcComparison.some((row) => row.key === key && row.sequence === sample.sequence)) {
+            adcComparison = adcComparison.filter((row) => row.time >= time - 10000);
+            adcComparison.push({ key, time, ...sample });
+          }
+        } catch { /* A missed diagnostic snapshot does not stop ordinary status polling. */ }
+      }
+      renderDiagnostics();
+    }
   } catch (e) {
     rhythm?.stop(`장치 통신이 중단되었습니다: ${e.message}`);
     connected = false;
@@ -1227,7 +1276,7 @@ function canvasContext(id) {
   c.fillStyle = "#8491a5";
   return { c, w: rect.width, h: rect.height };
 }
-function drawSignal(series, stats, now, adcView) {
+function drawSignal(series, stats, now, adcView, before = []) {
   const ctx = canvasContext("signalChart");
   if (!ctx) return;
   const { c, w, h } = ctx,
@@ -1239,9 +1288,11 @@ function drawSignal(series, stats, now, adcView) {
     c.fillText("최신 센서 샘플을 기다립니다.", 20, 50);
     return;
   }
-  const padding = Math.max(adcView ? 2 : 0.005, (stats.max - stats.min) * 0.12),
-    min = stats.min - padding,
-    max = stats.max + padding;
+  const low = Math.min(stats.min, ...before.map((s) => s.value)),
+    high = Math.max(stats.max, ...before.map((s) => s.value)),
+    padding = Math.max(adcView ? 2 : 0.005, (high - low) * 0.12),
+    min = low - padding,
+    max = high + padding;
   const y = (v) => B - ((v - min) / (max - min)) * (B - T),
     x = (t) => L + ((t - (now - 10000)) / 10000) * (R - L);
   c.strokeStyle = "#293443";
@@ -1274,6 +1325,14 @@ function drawSignal(series, stats, now, adcView) {
   c.lineTo(R, y(stats.mean));
   c.stroke();
   c.setLineDash([]);
+  if (before.length) {
+    c.strokeStyle = "#f6a35d";
+    c.beginPath();
+    before.forEach((s, i) =>
+      i ? c.lineTo(x(s.time), y(s.value)) : c.moveTo(x(s.time), y(s.value)),
+    );
+    c.stroke();
+  }
   c.strokeStyle = "#72d4df";
   c.lineWidth = 1.6;
   c.beginPath();
@@ -1322,16 +1381,19 @@ function drawHistogram(series, stats, adcView) {
 function renderDiagnostics() {
   if (!hall() || activeTab !== "diagnostics") return;
   const now = performance.now();
-  const adcView = $("diagnosticAdc").checked;
+  const compare = comparingAdc();
+  const adcView = compare || $("diagnosticAdc").checked;
+  $("adcCompareLegend").hidden = !compare;
   const calibrated = !!(profile?.keys[selected]?.flags & 4);
   const samples = adcView || calibrated ? telemetry.series(selected, now) : [];
-  const series = samples.map((sample) => ({
+  const pairs = compare ? adcComparison.filter((s) => s.key === selected && s.time >= now - 10000) : [];
+  const series = compare ? pairs.map((s) => ({ time: s.time, value: s.after })) : samples.map((sample) => ({
     time: sample.time,
     value: adcView ? sample.raw : normalizedToMm(sample.travel, travelMm[selected]),
   }));
   const s = summarize(series, (sample) => sample.value);
   const unit = adcView ? "ADC" : "mm";
-  const source = adcView ? "ADC 보고값" : "키 판정에 쓰는 이동량";
+  const source = compare ? "이동평균 전·후 ADC" : adcView ? "ADC 보고값" : "키 판정에 쓰는 이동량";
   $("diagnosticSignalLabel").textContent = `${source} · 평균 · ±1σ`;
   $("signalChart").setAttribute("aria-label", `최근 10초 ${source}와 평균 및 표준편차`);
   $("histogram").setAttribute("aria-label", `${source} 표본 분포`);
@@ -1345,10 +1407,11 @@ function renderDiagnostics() {
     !adcView && !calibrated
       ? "키를 보정하면 이동량을 확인할 수 있습니다."
       : `최근 ${series.length}개 · 관찰 ${fmt(s.observedHz, 1)} Hz · 보정 중·중복·오래된 샘플 제외`;
-  drawSignal(series, s, now, adcView);
+  drawSignal(series, s, now, adcView, pairs.map((p) => ({ time: p.time, value: p.before })));
   drawHistogram(series, s, adcView);
 }
 $("diagnosticAdc").onchange = renderDiagnostics;
+$("diagnosticAdcCompare").onchange = renderDiagnostics;
 function renderMeasurement() {
   const now = performance.now();
   measure.tick(now);

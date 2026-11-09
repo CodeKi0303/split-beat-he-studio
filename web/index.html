@@ -483,9 +483,26 @@
           </div>
           <button id="clearStats" class="secondary">통계 초기화</button>
         </div>
+        <fieldset id="adcTuning" hidden>
+          <legend>ADC 설정</legend>
+          <label id="adcScopeOption" hidden>적용 대상
+            <select id="adcScope"><option value="both">왼쪽·오른쪽</option><option value="left">왼쪽만</option></select>
+          </label>
+          <label>스캔레이트
+            <select id="adcScanRate"><option value="8000">8 kHz</option><option value="16000">16 kHz</option><option value="32000">32 kHz</option><option value="64000">64 kHz</option><option value="96000">96 kHz</option></select>
+          </label>
+          <label>이동평균
+            <select id="adcWindow"><option value="0">기존 설정</option><option value="1">Raw</option><option value="2">2</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select>
+          </label>
+          <button id="applyAdcTuning" type="button" class="secondary">적용</button>
+          <p>키 출력을 끈 뒤 적용하세요. Raw는 스캔 간 평균만 끕니다. 적용값은 각 보드를 재부팅할 때 초기화됩니다.</p>
+          <p id="adcTuningResult" role="status"></p>
+        </fieldset>
         <div class="hall-only">
           <p>최근 10초 · 키를 가만히 놓고 확인하세요.</p>
           <label><input id="diagnosticAdc" type="checkbox" /> ADC 보고값 보기</label>
+          <label id="adcCompareOption" hidden><input id="diagnosticAdcCompare" type="checkbox" /> 이동평균 전·후 겹쳐 보기</label>
+          <small id="adcCompareLegend" hidden>주황 · 평균 전　하늘색 · 평균 후</small>
           <div class="metrics">
             <div><small data-diagnostic-stat="평균">평균 (mm)</small><strong id="mean">—</strong></div>
             <div>
@@ -644,6 +661,6 @@
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-release2"></script>
+    <script type="module" src="app.mjs?v=studio-adc-pair1"></script>
   </body>
 </html>
