@@ -17,12 +17,13 @@ import {
   CAP_SAVE_OUTPUT,
   CAP_ADC_TUNING,
   CAP_ADC_PAIR,
+  CAP_ADC_PAIR_READ,
   ADC_SCAN_RATES,
   ADC_WINDOWS,
   integer,
   requireBindingCapability,
   requireKeyCapability,
-} from "./protocol.mjs?v=studio-adc-pair1";
+} from "./protocol.mjs?v=studio-adc-windows1";
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // Native HID open/close promises are not cancellable. Share a per-object
 // barrier across transport instances so a late cleanup cannot close a new
@@ -288,9 +289,10 @@ export class KeyboardClient {
   adcTuning(rate, window, { paired = false } = {}) {
     return this.run(async () => {
       if (!(this.deviceInfo?.capabilities & CAP_ADC_TUNING)) throw Error("이 펌웨어는 ADC 설정을 지원하지 않습니다.");
-      if (paired && !(this.deviceInfo.capabilities & CAP_ADC_PAIR)) throw Error("이 펌웨어는 좌우 동시 ADC 설정을 지원하지 않습니다.");
-      const writing = paired || rate !== undefined || window !== undefined;
-      if (writing && (!ADC_SCAN_RATES.includes(rate) || !ADC_WINDOWS.includes(window))) throw Error("지원하지 않는 스캔레이트 또는 이동평균입니다.");
+      const writing = rate !== undefined || window !== undefined;
+      if (writing && !paired && (this.deviceInfo.capabilities & CAP_ADC_PAIR_READ)) throw Error("ADC 설정은 좌우에 함께 적용해야 합니다.");
+      if (paired && !(this.deviceInfo.capabilities & (writing ? CAP_ADC_PAIR : CAP_ADC_PAIR_READ))) throw Error("이 펌웨어는 요청한 오른쪽 ADC 기능을 지원하지 않습니다.");
+      if (writing && (!ADC_SCAN_RATES.includes(rate) || !ADC_WINDOWS.slice(1).includes(window))) throw Error("지원하지 않는 스캔레이트 또는 이동평균입니다.");
       const payload = new Uint8Array(writing ? 5 : 0);
       if (writing) {
         new DataView(payload.buffer).setUint32(0, rate, true);

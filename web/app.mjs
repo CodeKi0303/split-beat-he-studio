@@ -10,7 +10,7 @@ import {
   compatible,
   WebHIDTransport,
   KeyboardClient,
-} from "./device.mjs?v=studio-adc-pair1";
+} from "./device.mjs?v=studio-adc-windows1";
 import {
   VID,
   PID,
@@ -22,7 +22,8 @@ import {
   CAP_KEY_CHORD,
   CAP_ADC_TUNING,
   CAP_ADC_PAIR,
-} from "./protocol.mjs?v=studio-adc-pair1";
+  CAP_ADC_PAIR_READ,
+} from "./protocol.mjs?v=studio-adc-windows1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
@@ -77,9 +78,9 @@ const telemetry = new TelemetryStore(),
   measure = new InterferenceSession();
 const batch = new BatchCalibration();
 let adcComparison = [], lastAdcComparison = -Infinity;
+let adcApplied = [null, null];
 const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TUNING);
 const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
-const pairedAdcScope = () => adcPairSupported() && $("adcScope").value === "both";
 const comparingAdc = () => adcTuningSupported() && selected < 7 && $("diagnosticAdcCompare").checked;
 const selectedHall = new Set([0]), performanceDirty = new Set();
 const performanceTargets = () =>
@@ -533,12 +534,13 @@ function controls() {
   const calibrationAllowed =
     connected && !busy && !measuring() && !batchActive();
   $("adcTuning").hidden = !adcTuningSupported();
-  $("adcScopeOption").hidden = !adcPairSupported();
+  $("readRightAdc").hidden = !adcTuningSupported() || !(info?.capabilities & CAP_ADC_PAIR_READ);
+  $("readRightAdc").disabled = !mutable || !latest[0] || latest[0].output_enabled || !latest[1]?.fresh;
   $("adcCompareOption").hidden = !adcTuningSupported() || selected >= 7;
   $("adcCompareLegend").hidden = !comparingAdc();
-  $("applyAdcTuning").disabled = !mutable || !!latest[0]?.output_enabled || (pairedAdcScope() && !latest[1]?.fresh);
-  $("applyAdcTuning").textContent = pairedAdcScope() ? "좌우에 적용" : "왼쪽에 적용";
-  $("applyAdcTuning").title = pairedAdcScope() && !latest[1]?.fresh ? "오른쪽 키보드 연결이 필요합니다." : "";
+  $("applyAdcTuning").disabled = !mutable || !adcPairSupported() || !latest[0] || latest[0].output_enabled || !latest[1]?.fresh;
+  $("applyAdcTuning").title = !adcPairSupported() ? "좌우 설정을 지원하는 펌웨어가 필요합니다." :
+    !latest[1]?.fresh ? "오른쪽 키보드 연결이 필요합니다." : "";
   for (const id of ["outputOff", "save", "refresh", "export", "import"])
     $(id).disabled = !mutable;
   $("outputOn").disabled =
@@ -663,6 +665,8 @@ function clearTelemetry() {
   latest = [null, null];
   telemetry.clear();
   adcComparison = [];
+  adcApplied = [null, null];
+  renderAdcWindows();
   measure.reset();
   drawnMeasurement = null;
   calStage = null;
@@ -719,24 +723,52 @@ async function refresh() {
   if (adcTuningSupported()) showAdcTuning(await client.adcTuning());
   renderSelection();
 }
-function showAdcTuning({ rate, window }, paired = false) {
-  $("adcScanRate").value = String(rate);
-  $("adcWindow").value = String(window);
-  $("adcTuningResult").textContent = `${paired ? "좌우" : "왼쪽"} · ${rate / 1000} kHz · ${window === 0 ? "기존 설정 (R만 8프레임)" : window === 1 ? "Raw" : `${window}프레임`}`;
+const adcWindowLabel = (window) => window === 1 ? "Raw" : `${window}프레임`;
+function renderAdcWindows() {
+  const rows = CONTROLS.filter((control) => control.type === "hall" && control.side === 0).map((control, key) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    label.scope = "row";
+    label.textContent = control.label;
+    row.append(label);
+    for (const state of adcApplied) {
+      const cell = document.createElement("td");
+      // Firmware through v0.3.35 reported zero for the mixed boot profile.
+      cell.textContent = state ? adcWindowLabel(state.window || (key === 4 ? 8 : 1)) : "미확인";
+      row.append(cell);
+    }
+    return row;
+  });
+  $("adcWindowsByKey").replaceChildren(...rows);
 }
-$("adcScope").onchange = controls;
+function showAdcTuning(state, paired = false) {
+  const { rate, window } = state;
+  adcApplied[0] = state;
+  if (paired) adcApplied[1] = state;
+  $("adcScanRate").value = String(rate);
+  $("adcWindow").value = String(window || 1);
+  $("adcTuningResult").textContent = `${paired ? "좌우 마지막 적용" : "왼쪽"} · ${rate / 1000} kHz${window ? ` · ${adcWindowLabel(window)}` : ""}`;
+  renderAdcWindows();
+}
+$("readRightAdc").onclick = () => action(async () => {
+  adcApplied[1] = null;
+  renderAdcWindows();
+  adcApplied[1] = await client.adcTuning(undefined, undefined, { paired: true });
+  renderAdcWindows();
+}, "오른쪽 ADC 적용값 확인 완료");
 $("applyAdcTuning").onclick = () => action(async () => {
-  const paired = pairedAdcScope();
   let applied;
   try {
-    applied = await client.adcTuning(Number($("adcScanRate").value), Number($("adcWindow").value), { paired });
+    applied = await client.adcTuning(Number($("adcScanRate").value), Number($("adcWindow").value), { paired: true });
   } catch (error) {
-    if (paired) $("adcTuningResult").textContent = "좌우 적용을 확인하지 못했습니다. 오른쪽 연결을 확인하고 다시 적용하세요.";
+    adcApplied.fill(null);
+    renderAdcWindows();
+    $("adcTuningResult").textContent = "좌우 적용을 확인하지 못했습니다. 오른쪽 연결을 확인하고 다시 적용하세요.";
     throw error;
   }
   telemetry.clear();
   adcComparison = [];
-  showAdcTuning(applied, paired);
+  showAdcTuning(applied, true);
   infoView(await client.info());
 }, "ADC 설정 적용 완료 · 키 출력 꺼짐");
 function hallTravelLabel(id) {
@@ -756,6 +788,10 @@ function renderPressedKeys(side) {
 }
 function renderStatus(side, s) {
   latest[side] = s;
+  if (!s.fresh && adcApplied[side] && side === 1) {
+    adcApplied[side] = null;
+    renderAdcWindows();
+  }
   if (
     s.calibration_state > 0 &&
     s.calibration_key < 14 &&

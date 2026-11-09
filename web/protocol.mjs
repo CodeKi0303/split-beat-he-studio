@@ -16,6 +16,7 @@ export const CAP_KEY_CHORD = 0x2000;
 export const CAP_SAVE_OUTPUT = 0x4000;
 export const CAP_ADC_TUNING = 0x8000;
 export const CAP_ADC_PAIR = 0x10000;
+export const CAP_ADC_PAIR_READ = 0x20000;
 export const ADC_SCAN_RATES = [8000, 16000, 32000, 64000, 96000];
 export const ADC_WINDOWS = [0, 1, 2, 4, 6, 8];
 // Read-only C86 left v0.3.8+ ADC stop snapshot; not simulated by demo mode.
