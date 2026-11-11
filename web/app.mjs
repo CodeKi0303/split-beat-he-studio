@@ -1,6 +1,7 @@
 import { BatchCalibration } from "./batch-calibration.mjs?v=studio-owlab1";
 import { fetchStudioRelease, firmwareVersionNumber } from "./studio-release.mjs";
 import { RhythmLab } from "./rhythm-ui.mjs?v=studio-owlab1";
+import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-autofit1";
 import { applyCalibration } from "./apply-calibration.mjs?v=studio-owlab1";
 import {
   proposePerformanceSettings,
@@ -67,7 +68,8 @@ let client = null,
   polling = false,
   timer = null,
   lockRelease = null,
-  rhythm = null;
+  rhythm = null,
+  autoFit = null;
 let lastPollAt = -Infinity;
 const lastStatusPaint = [-Infinity, -Infinity];
 let latest = [null, null],
@@ -93,7 +95,7 @@ const hall = () => selected < 14;
 const calibrationActive = () =>
   !!calStage || latest.some((s) => s?.calibration_state > 0);
 const measuring = () =>
-  !!rhythm?.active || ["baseline", "ready", "pressed"].includes(measure.state);
+  !!rhythm?.active || !!autoFit?.active || !!autoFit?.applying || ["baseline", "ready", "pressed"].includes(measure.state);
 const fmt = (x, n = 2) =>
   x === null || x === undefined || !Number.isFinite(x) ? "—" : x.toFixed(n);
 function log(message, error = false) {
@@ -130,6 +132,7 @@ function loadPreferences() {
 }
 function setTab(name) {
   if (name !== "rhythm" && rhythm?.active) rhythm.stop("다른 화면으로 이동해 측정을 중단했습니다.");
+  if (name !== "rhythm" && autoFit?.active) autoFit.stop("다른 화면으로 이동해 측정을 중단했습니다.");
   activeTab = name;
   document.body.classList.toggle("performance-tab", name === "performance");
   for (const [id, title] of Object.entries(titles)) $(id).hidden = id !== name;
@@ -627,6 +630,7 @@ function controls() {
     busy || batch.state === "idle";
   document.body.classList.toggle("measuring", measuring());
   rhythm?.updateContext();
+  autoFit?.updateContext();
 }
 $("rt").onchange = () => markPerformanceDirty("rt");
 $("enabled").onchange = () => markPerformanceDirty("enabled");
@@ -841,12 +845,13 @@ function renderStatus(side, s) {
 }
 async function poll() {
   if (!client || !connected || busy || polling) return;
-  const fast = rhythm?.active && !rhythm.starting;
+  const capture = autoFit?.active ? autoFit : rhythm;
+  const fast = capture?.active && !capture.starting;
   if (!fast && performance.now() - lastPollAt < 48) return;
   lastPollAt = performance.now();
   polling = true;
   try {
-    const targetSide = fast ? Math.floor(rhythm.recordContext.key / 7) : null;
+    const targetSide = fast ? Math.floor(capture.recordContext.key / 7) : null;
     const sides = fast ? [targetSide] : [0, 1];
     if (fast && performance.now() - lastStatusPaint[1 - targetSide] > 100) sides.push(1 - targetSide);
     for (const side of sides) {
@@ -857,6 +862,7 @@ async function poll() {
       const responseTime = performance.now();
       if (client === current) {
         rhythm?.ingest(side, s, requestTime, responseTime);
+        autoFit?.ingest(side, s, requestTime, responseTime);
         latest[side] = s;
         if (!fast || responseTime - lastStatusPaint[side] >= 50) {
           lastStatusPaint[side] = responseTime;
@@ -880,6 +886,7 @@ async function poll() {
     }
   } catch (e) {
     rhythm?.stop(`장치 통신이 중단되었습니다: ${e.message}`);
+    autoFit?.stop(`장치 통신이 중단되었습니다. ${e.message}`);
     connected = false;
     clearTelemetry();
     controls();
@@ -977,6 +984,7 @@ async function connect() {
 }
 async function disconnect({ disableOutput = true, quiet = false } = {}) {
   rhythm?.stop("키보드 연결을 종료해 측정을 중단했습니다.");
+  autoFit?.stop("키보드 연결을 종료해 측정을 중단했습니다.");
   if (timer) clearInterval(timer);
   timer = null;
   if (client) {
@@ -1530,12 +1538,13 @@ $("clearStats").onclick = () => {
 window.addEventListener("resize", () => renderDiagnostics());
 window.addEventListener("pagehide", () => {
   rhythm?.stop("페이지가 닫혀 측정을 중단했습니다.");
+  autoFit?.stop("페이지가 닫혀 측정을 중단했습니다.");
   if (lockRelease) lockRelease();
   if (client) client.transport.close().catch(() => {});
 });
 rhythm = new RhythmLab({
   getContext: () => ({ selected, label: INPUTS[selected].label, profile, travelMm, info,
-    available: connected && !busy && !calibrationActive() && !batchActive() &&
+    available: connected && !busy && !autoFit?.active && !autoFit?.applying && !calibrationActive() && !batchActive() &&
       !["baseline", "ready", "pressed"].includes(measure.state) && !!latest[INPUTS[selected].side]?.fresh }),
   prepare: async () => {
     if (!client || !connected || busy || calibrationActive() || batchActive()) throw Error("장치가 측정 준비 상태가 아닙니다.");
@@ -1553,6 +1562,50 @@ rhythm = new RhythmLab({
     } finally { busy = false; controls(); }
   },
   onChange: () => controls(),
+  onLog: log,
+});
+function autoFitContext() {
+  return { selected, label: INPUTS[selected].label, profile, travelMm, info, connected,
+    identity: preferenceKey, adcSetting: adcApplied,
+    available: connected && !busy && !rhythm?.active && !calibrationActive() && !batchActive() &&
+      !["baseline", "ready", "pressed"].includes(measure.state) && !!latest[INPUTS[selected].side]?.fresh };
+}
+autoFit = new AutoFitWizard({
+  getContext: autoFitContext,
+  prepare: async () => {
+    if (!client || !connected || busy || rhythm?.active || calibrationActive() || batchActive()) throw Error("장치가 측정 준비 상태가 아닙니다.");
+    busy = true; controls();
+    try {
+      const current = client;
+      if (await current.output(false) !== false) throw Error("키 출력 해제를 확인하지 못했습니다.");
+      profile = await current.getConfig();
+      const status = await current.status(INPUTS[selected].side);
+      if (!connected || current !== client || !status.fresh || status.calibration_state) throw Error("최신 센서 상태를 확인할 수 없습니다.");
+      if (selected >= 14 || (profile.keys[selected].flags & 5) !== 5) throw Error("캘리브레이션을 완료한 Hall 키를 선택하세요.");
+      renderStatus(INPUTS[selected].side, status);
+      return autoFitContext();
+    } finally { busy = false; controls(); }
+  },
+  verify: async (source) => {
+    const current = client;
+    if (!current || !connected) throw Error("키보드 연결을 확인하세요.");
+    const actual = await current.getConfig();
+    if (current !== client || !connected || JSON.stringify(actual) !== JSON.stringify(source.profile))
+      throw Error("측정 중 설정이 바뀌었습니다. 처음부터 다시 측정하세요.");
+  },
+  apply: async (source, candidate) => {
+    if (!client || !connected || busy || selected !== source.key) throw Error("측정한 키를 선택하고 연결을 확인하세요.");
+    busy = true; controls();
+    try {
+      if (candidate.key !== source.key || candidate.curve_id !== source.keyConfig.curve_id || candidate.noise_deadband !== source.keyConfig.noise_deadband)
+        throw Error("추천 설정의 키와 보정 정보를 확인할 수 없습니다.");
+      const outcome = await applyPerformanceSettings(client, source.profile, [candidate]);
+      if (outcome.profile) profile = outcome.profile;
+      telemetry.clear(); renderSelection();
+      if (!outcome.complete) throw Error(outcome.error || "추천값 적용을 확인할 수 없습니다.");
+    } finally { busy = false; controls(); }
+  },
+  onChange: controls,
   onLog: log,
 });
 renderSelection();

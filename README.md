@@ -11,6 +11,12 @@
 
 [하드웨어 주문](https://github.com/CodeKi0303/split-beat-he-hardware) · [펌웨어 릴리스](https://github.com/CodeKi0303/split-beat-he-firmware/releases) · [수평 휠](https://github.com/CodeKi0303/split-beat-he-wheel)
 
+## 자동 맞춤
+
+보정된 Hall 키를 선택하고 **리듬 · RT 측정 → 자동 맞춤**에서 손 떼기, 손가락 얹기, 반복 입력, 길게 누르기를 측정합니다. 균형·연타·유지 중 선호하는 방향에 맞춰 작동점과 RT 후보를 비교합니다. 추천값을 해당 키에 적용한 뒤 다시 측정해 확인하고, **키보드에 저장**으로 보관합니다.
+
+추천은 브라우저가 받은 센서 기록을 바탕으로 합니다. 샘플 사이의 짧은 변화와 실제 게임 판정은 추가 확인이 필요합니다. [MCP 플러그인](https://github.com/CodeKi0303/split-beat-he-plugin)에서도 단계별 안내와 측정을 진행할 수 있습니다.
+
 ## 개발과 배포
 
 ```sh

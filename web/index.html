@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Split-Beat HE Studio · 키보드 설정</title>
-    <link rel="stylesheet" href="style.css?v=studio-rhythm1" />
+    <link rel="stylesheet" href="style.css?v=studio-autofit1" />
     <link rel="stylesheet" href="rhythm.css?v=studio-rhythm1" />
     <link rel="stylesheet" href="binding-picker.css?v=studio-chords1" />
   </head>
@@ -582,6 +582,18 @@
         </details>
       </section>
       <section id="rhythm" class="workspace" hidden>
+        <section class="auto-fit-panel" aria-labelledby="autoFitTitle">
+          <div class="panel-title"><div><h2 id="autoFitTitle">자동 맞춤</h2><p>선택한 키를 평소처럼 움직이면 작동점과 RT를 추천합니다.</p></div><span id="autoFitKey" class="pill">Hall 키 선택</span></div>
+          <label>우선할 동작<select id="autoFitPreference"><option value="balanced">균형</option><option value="repeat">연타</option><option value="hold">롱노트 유지</option></select></label>
+          <div id="autoFitSteps" class="auto-fit-steps" aria-label="자동 맞춤 측정 단계"></div>
+          <p id="autoFitInstruction"></p>
+          <progress id="autoFitProgress" value="0" max="1" aria-label="현재 단계 진행률"></progress>
+          <div class="auto-fit-actions"><button id="autoFitStart" type="button" disabled>손 떼기 · 3초 측정</button><button id="autoFitStop" type="button" class="secondary" disabled>중단</button><button id="autoFitReset" type="button" class="ghost">처음부터</button></div>
+          <p id="autoFitState" role="status" aria-live="polite"></p>
+          <div id="autoFitResults" hidden><p id="autoFitReasons"></p><div id="autoFitValues" class="auto-fit-values"></div><p id="autoFitMetrics"></p><p id="autoFitRetestSummary"></p></div>
+          <div class="auto-fit-actions"><button id="autoFitApply" type="button" disabled>이 키에 추천값 적용</button><button id="autoFitRetest" type="button" class="secondary" disabled>추천값 재시험</button><button id="autoFitExport" type="button" class="ghost" disabled>측정 JSON 내보내기</button></div>
+          <small>측정 중 키 출력은 꺼집니다. 아래 리듬 측정에서 소리와 입력 시점도 비교할 수 있습니다.</small>
+        </section>
         <div class="panel-title">
           <div><p class="eyebrow">05 / RHYTHM LAB</p><h2>소리와 손끝의 타이밍</h2></div>
           <span id="rhythmKey" class="pill">Hall 키 선택</span>
@@ -665,6 +677,6 @@
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-adc-windows1"></script>
+    <script type="module" src="app.mjs?v=studio-autofit1"></script>
   </body>
 </html>
