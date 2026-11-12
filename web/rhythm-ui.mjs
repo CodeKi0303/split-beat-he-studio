@@ -2,7 +2,7 @@ import { RhythmAudio } from "./rhythm-audio.mjs?v=studio-owlab1";
 import { RhythmCapture, makeSchedule, matchTimingEdges } from "./rhythm-analysis.mjs?v=studio-rhythm-practice2";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
 import { RhythmPracticeView, practiceInputStart, normalizeNoteSpeed, readNoteSpeed, saveNoteSpeed,
-  noteLookaheadMs } from "./rhythm-visuals.mjs?v=studio-note-speed1";
+  noteLookaheadMs } from "./rhythm-visuals.mjs?v=studio-consumed-notes1";
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 1) => Number.isFinite(v) ? v.toFixed(n) : "—";

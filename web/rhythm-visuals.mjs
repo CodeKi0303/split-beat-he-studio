@@ -24,8 +24,8 @@ export function laneGeometry({ noteSpeed = 1, top, line, elapsedMs = 0, previewT
   // Preview the first head halfway down at every speed, including 4×.
   const nowMs = Number.isFinite(previewTargetMs) ? previewTargetMs - lookaheadMs / 2 : elapsedMs;
   const scale = (line - top) / lookaheadMs;
-  // Keep signed coordinates: past heads continue below the line while hold
-  // release tails approach it. Canvas clipping owns viewport boundaries.
+  // Keep signed coordinates for missed heads and approaching release tails.
+  // Matched targets are consumed separately, without changing their timing.
   return { lookaheadMs, nowMs, y: (timeMs) => line - (timeMs - nowMs) * scale };
 }
 export const formatTiming = (value) => Number.isFinite(value)
@@ -62,13 +62,18 @@ export function timingEntries({ schedule, matches = [], extraEdges = [], lastSam
 }
 
 /** Notes follow corrected targets, including the hold release envelope tail. */
-export function laneNotes(schedule) {
+export function laneNotes(schedule, matches = [], elapsedMs = 0) {
   if (!schedule) return [];
   const targets = new Map(schedule.targets.map((target) => [target.id, target]));
+  const hit = new Set(matches.filter((match) => match.edge &&
+    match.edge.type === match.type && Number.isFinite(match.edge.timeMs) &&
+    match.edge.timeMs <= elapsedMs).map((match) => match.id));
   return schedule.cues.filter((cue) => cue.type !== "count-in").map((cue) => ({
     id: cue.id, type: cue.type, accent: cue.accent,
     pressMs: targets.get(`${cue.id}-press`)?.targetMs ?? cue.onMs,
     releaseMs: targets.get(`${cue.id}-release`)?.targetMs ?? cue.offMs,
+    pressHit: hit.has(`${cue.id}-press`),
+    releaseHit: hit.has(`${cue.id}-release`),
   }));
 }
 
@@ -134,9 +139,9 @@ export class RhythmPracticeView {
     this.get("rhythmTimingMeter").setAttribute("aria-label", preparing ? "준비 박자, 입력 판정 대기" : `${description.verdict}, ${description.value}, ${description.detail}`);
     this.get("rhythmTimingCounts").textContent = `대응 ${entries.filter((entry) => entry.edge && Number.isFinite(entry.errorMs)).length} · 미관측 ${entries.filter((entry) => entry.state === "unobserved").length} · 목표 밖 ${entries.filter((entry) => entry.state === "extra").length}`;
     this.drawHistory(entries.filter((entry) => Number.isFinite(entry.errorMs)).slice(-24));
-    this.drawLane({ schedule, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed: Boolean(last?.pressed), label, noteSpeed });
+    this.drawLane({ schedule, matches, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed: Boolean(last?.pressed), label, noteSpeed });
   }
-  drawLane({ schedule, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed, label, noteSpeed = 1 }) {
+  drawLane({ schedule, matches = [], elapsedMs, active, starting, hasResult, preparing, countingIn, pressed, label, noteSpeed = 1 }) {
     const surface = canvasContext(this.get("rhythmLane"));
     if (!surface) return;
     const { c, w, h } = surface, L = w * .22, R = w * .78, top = 12, line = h - 58;
@@ -155,21 +160,28 @@ export class RhythmPracticeView {
         c.strokeStyle = beat % 4 === 0 ? "#6e7b8d45" : "#35425260";
         c.beginPath(); c.moveTo(L, py); c.lineTo(R, py); c.stroke();
       }
-      for (const note of laneNotes(schedule)) {
+      for (const note of laneNotes(schedule, active || hasResult ? matches : [], elapsedMs)) {
         const head = y(note.pressMs), tail = y(note.releaseMs), nx = L + 12, nw = R - L - 24;
         if (head < top - 10 || tail > h + 12) continue;
-        if (note.type === "hold") {
+        if (note.type === "hold" && !note.releaseHit) {
           const held = active && !preparing && pressed && now >= note.pressMs && now <= note.releaseMs;
+          const bottom = note.pressHit ? line : head;
           c.fillStyle = held ? "#b4ed785c" : "#72d4df35";
-          c.fillRect(nx + nw * .2, tail, nw * .6, Math.max(2, head - tail));
           c.strokeStyle = held ? "#b4ed78" : "#72d4df85";
-          c.strokeRect(nx + nw * .2, tail, nw * .6, Math.max(2, head - tail));
+          if (bottom > tail) {
+            c.fillRect(nx + nw * .2, tail, nw * .6, bottom - tail);
+            c.strokeRect(nx + nw * .2, tail, nw * .6, bottom - tail);
+          }
         }
         // Open release cap is distinct from the filled press head.
-        c.strokeStyle = "#e8ad72"; c.lineWidth = 2; c.strokeRect(nx + 3, tail - 2, nw - 6, 5);
-        c.fillStyle = note.accent ? "#d5f9b0" : "#b4ed78";
-        c.fillRect(nx, head - 4, nw, 8);
-        c.fillStyle = "#182311"; c.fillRect(nx + nw / 2 - 1, head - 2, 2, 4);
+        if (!note.releaseHit) {
+          c.strokeStyle = "#e8ad72"; c.lineWidth = 2; c.strokeRect(nx + 3, tail - 2, nw - 6, 5);
+        }
+        if (!note.pressHit) {
+          c.fillStyle = note.accent ? "#d5f9b0" : "#b4ed78";
+          c.fillRect(nx, head - 4, nw, 8);
+          c.fillStyle = "#182311"; c.fillRect(nx + nw / 2 - 1, head - 2, 2, 4);
+        }
       }
     }
     c.restore();

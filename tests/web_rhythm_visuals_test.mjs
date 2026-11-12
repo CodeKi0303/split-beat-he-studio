@@ -43,6 +43,15 @@ const edges = [
   { id: "outside", type: "release", timeMs: 2300, earliestMs: 2290, latestMs: 2310 },
 ];
 const matching = matchTimingEdges(schedule.targets, edges, 120);
+const notesBeforeHit = laneNotes(schedule, matching.matches, 1969);
+assert.equal(notesBeforeHit[0].pressHit, false, "replay before the observed press still shows the head");
+assert.equal(laneNotes(schedule, matching.matches, 1970)[0].pressHit, true, "the matched early press consumes its head at the observed event");
+assert.equal(laneNotes(schedule, matching.matches, 2100)[0].releaseHit, false, "the future release marker is independent of the consumed head");
+assert.equal(laneNotes(schedule, matching.matches, 2155)[0].releaseHit, true);
+assert.equal(laneNotes(schedule, matching.matches, 2240)[1].pressHit, false, "the next head is not consumed by holding the same key");
+assert.equal(laneNotes(schedule, matching.matches, 2255)[1].pressHit, true);
+assert.equal(laneNotes(schedule, matching.matches, 4000)[2].pressHit, false, "unmatched targets never become successful notes");
+assert.ok(laneNotes(schedule).every((note) => !note.pressHit && !note.releaseHit), "preview has no invented judgments");
 const view = (options = {}) => timingEntries({ schedule, ...matching, lastSampleMs: 2310, elapsedMs: 2310, active: true, ...options });
 assert.deepEqual(view({ elapsedMs: 1500, lastSampleMs: 1500 }), [], "preparation movements have no scored visualization");
 assert.equal(view({ elapsedMs: 1990, lastSampleMs: 1990 })[0].state, "early", "legitimate early input for the first note is visible before its sound");
@@ -124,6 +133,34 @@ for (const noteSpeed of [.5, 1, 2, 4]) {
     "long hold bodies continue to connect to their release tail");
 }
 assert.deepEqual(longHold, beforeDraw, "changing render speed never changes corrected targets, cues or BPM");
+
+// Consumed long notes retain only their upcoming hold body/release. The body
+// ends at the judgment line, even after the old press location moves offscreen.
+const heldPress = { ...longHold.targets[0], edge: { type: "press", timeMs: longHold.targets[0].targetMs + 30 } };
+const heldRelease = { ...longHold.targets[1], edge: { type: "release", timeMs: longHold.targets[1].targetMs + 30 } };
+// Isolate this held note: subsequent scheduled notes must still be drawn.
+const firstHoldId = laneNotes(longHold)[0].id;
+const firstHold = { ...longHold,
+  cues: longHold.cues.filter((cue) => cue.type === "count-in" || cue.id === firstHoldId),
+  targets: longHold.targets.slice(0, 2) };
+const laneWidth = 300 * (.78 - .22) - 24;
+for (const noteSpeed of [.5, 1, 4]) {
+  draws.length = 0;
+  laneView.drawLane({ schedule: firstHold, matches: [heldPress, heldRelease], elapsedMs: heldRelease.edge.timeMs - 130,
+    active: true, pressed: true, label: "test", noteSpeed });
+  assert.ok(!draws.some(([kind, , , width, height]) => kind === "fillRect" && Math.abs(width - laneWidth) < 1e-8 && height === 8),
+    "a matched head is no longer drawn below the line");
+  assert.ok(draws.some(([kind, , y, width, height]) => kind === "fillRect" && Math.abs(width - laneWidth * .6) < 1e-8 && Math.abs(y + height - 222) < 1e-8),
+    "a matched hold body stops exactly at the judgment line");
+  assert.ok(draws.some(([kind, , , width, height]) => kind === "strokeRect" && Math.abs(width - (laneWidth - 6)) < 1e-8 && height === 5),
+    "the upcoming release cap remains visible");
+  draws.length = 0;
+  laneView.drawLane({ schedule: firstHold, matches: [heldPress, heldRelease], elapsedMs: heldRelease.edge.timeMs,
+    active: true, pressed: false, label: "test", noteSpeed });
+  assert.ok(!draws.some(([kind, , , width]) => ["fillRect", "strokeRect"].includes(kind) && Math.abs(width - laneWidth * .6) < 1e-8),
+    "a matched release consumes the remaining held body");
+}
+assert.deepEqual(longHold, beforeDraw, "visual consumption does not remove or change recorded timing targets");
 
 // Test the real UI update path while a capture is active. A presentation edit
 // must not restart audio, rebuild the schedule, or ask for a device operation.

@@ -71,15 +71,22 @@ let browser;
       const at = (timeMs, value) => window.__practicePoseTimers.push(setTimeout(() => { simulator.pose[key] = value; },
         Math.max(0, lab.origin + timeMs - performance.now())));
       at(300, 800); at(450, 0); // preparation movement is deliberately captured
-      if (division === 8) {
-        for (const cue of lab.schedule.cues.filter((cue) => cue.type !== "count-in").slice(0, 6)) {
-          at(cue.onMs - 30, 800); at(cue.offMs + 22, 0);
+      const tapped = new Set(lab.schedule.cues.filter((cue) => cue.type !== "count-in").slice(0, 6).map((cue) => cue.id));
+      const onEvent = lab.audio.onEvent;
+      lab.audio.onEvent = (event) => {
+        // Let production map native audio timestamps into corrected targets
+        // before scheduling physical poses. Nominal cue times can differ by
+        // an audio-device latency estimate, even in a muted headless browser.
+        onEvent(event);
+        if (event.type === "count-in") return;
+        const target = (type) => lab.schedule.targets.find((entry) => entry.id === `${event.id}-${type}`).targetMs;
+        if (division === 8 && event.kind === "on" && tapped.has(event.id)) {
+          at(target("press") - 30, 800); at(target("release") + 22, 0);
+        } else if (mode === "hold") {
+          if (event.kind === "on") { at(target("press") - 25, 900); at(target("press") + 220, 850); }
+          else if (event.kind === "off") at(target("release") + 35, 0);
         }
-      } else if (mode === "hold") {
-        for (const cue of lab.schedule.cues.filter((cue) => cue.type === "hold")) {
-          at(cue.onMs - 25, 900); at(cue.onMs + 220, 850); at(cue.offMs + 35, 0);
-        }
-      }
+      };
       const observe = setInterval(() => {
         window.__practiceObservations.push({ phase: document.querySelector("#rhythmPractice").dataset.phase,
           state: document.querySelector("#rhythmTimingCard").dataset.timing,
