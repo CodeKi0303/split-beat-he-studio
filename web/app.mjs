@@ -1,7 +1,7 @@
 import { BatchCalibration } from "./batch-calibration.mjs?v=studio-owlab1";
 import { fetchStudioRelease, firmwareVersionNumber } from "./studio-release.mjs";
-import { RhythmLab } from "./rhythm-ui.mjs?v=studio-recognized-travel1";
-import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-retrigger1";
+import { RhythmLab } from "./rhythm-ui.mjs?v=studio-default-layout1";
+import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-default-layout1";
 import { mountRTSettingHelp } from "./rt-setting-help.mjs?v=studio-recognized-travel1";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
 import { applyCalibration } from "./apply-calibration.mjs?v=studio-owlab1";
@@ -31,13 +31,14 @@ import {
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
+import { inputBinding, inputBindingLabel, inputKeycapLabel, inputLabel } from "./input-labels.mjs?v=studio-default-layout1";
 import {
   TelemetryStore,
   InterferenceSession,
   normalizedToMm,
   summarize,
 } from "./telemetry.mjs?v=studio-filtered-diagnostics1";
-import { bindingLabel } from "./key-catalog.mjs?v=studio-chords1";
+import { bindingLabel } from "./key-catalog.mjs?v=studio-default-layout1";
 import {
   parseUiProfile,
   makeUiProfile,
@@ -95,6 +96,7 @@ let batchOriginal = null,
 const batchActive = () => ["baseline", "press"].includes(batch.state);
 let drawnMeasurement = null;
 const hall = () => selected < 14;
+const mappedInputLabel = (id) => inputLabel(id, profile?.bindings);
 const calibrationActive = () =>
   !!calStage || latest.some((s) => s?.calibration_state > 0);
 const measuring = () =>
@@ -207,15 +209,11 @@ function buildKeyboard() {
       b.type = "button";
       const direction = input.direction && input.direction !== "click";
       b.className = `key ${c.type === "hall" ? "hall" : c.type === "digital" ? "digital" : "encoder"}${direction ? " direction" : ""}`;
-      b.setAttribute("aria-label", input.label);
+      b.setAttribute("aria-label", mappedInputLabel(id));
       b.setAttribute("aria-pressed", "false");
       b.innerHTML =
         '<span class="name"></span><span class="raw">—</span><span class="travel"></span><span class="bar"></span>';
-      b.querySelector(".name").textContent = direction
-        ? input.direction === "cw"
-          ? "↻"
-          : "↺"
-        : c.defaultLabel;
+      b.querySelector(".name").textContent = inputKeycapLabel(id, profile?.bindings);
       b.querySelector(".travel").textContent =
         c.type === "hall"
           ? "Hall"
@@ -315,8 +313,8 @@ function renderMappingPreview() {
   controls();
 }
 function renderBinding() {
-  $("bindingTitle").textContent = `${INPUTS[selected].label} → 출력`;
-  const b = profile?.bindings[selected] ?? { kind: 1, code: 0, modifiers: 0 };
+  $("bindingTitle").textContent = `${mappedInputLabel(selected)} → 출력`;
+  const b = inputBinding(selected, profile?.bindings) ?? { kind: 0, code: 0, modifiers: 0 };
   const bit = b.kind === 1 ? modifierBit(b.code) : 0;
   bindingDraft = {
     kind: b.kind === 6 ? 1 : b.kind,
@@ -335,28 +333,31 @@ for (const button of bindingModes) button.onclick = () => {
 };
 function renderBoard() {
   for (const input of INPUTS) {
-    const b = $(`key-${input.id}`),
-      direction = input.direction && input.direction !== "click";
+    const b = $(`key-${input.id}`);
     const inGroup = activeTab === "performance" && selectedHall.has(input.id);
     const highlighted = activeTab === "performance" ? inGroup : input.id === selected;
     b.classList.toggle("selected", highlighted);
     b.classList.toggle("multi-selected", inGroup && selectedHall.size > 1);
     b.classList.toggle("selection-primary", inGroup && input.id === selected);
     b.setAttribute("aria-pressed", String(highlighted));
-    if (profile) {
-      const text = bindingLabel(profile.bindings[input.id]);
-      b.title = `${input.label} → ${text}`;
-      if (!direction) b.querySelector(".name").textContent = text;
-      b.setAttribute("aria-label", `${input.label} → ${text}`);
-    }
+    const label = mappedInputLabel(input.id);
+    b.title = label;
+    b.querySelector(".name").textContent = inputKeycapLabel(input.id, profile?.bindings);
+    b.setAttribute("aria-label", label);
   }
+  renderMappingSource();
   const calibrated = profile?.keys.filter((k) => k.flags & 4).length ?? 0;
   $("calProgress").textContent = `보정 ${calibrated} / 14`;
+}
+function renderMappingSource() {
+  $("mappingSource").textContent = profile
+    ? connected ? "현재 키보드 매핑" : "마지막으로 읽은 매핑 · 연결 끊김"
+    : "기본 배치 미리보기";
 }
 function renderSelection() {
   const count = performanceTargets().length;
   $("selectionLabel").textContent = activeTab === "performance" && count !== 1
-    ? `${count}개 Hall 키 선택` : INPUTS[selected].label;
+    ? `${count}개 Hall 키 선택` : mappedInputLabel(selected);
   $("performanceSelectionCount").textContent = `${count}개 선택`;
   $("selectionType").textContent = hall()
     ? "Hall"
@@ -374,6 +375,8 @@ function renderSelection() {
   renderKey();
   renderCalibration();
   renderDiagnostics();
+  renderAdcWindows();
+  renderMeasurement();
   renderBatch();
   for (let side = 0; side < latest.length; side++) renderPressedKeys(side);
 }
@@ -395,7 +398,7 @@ function renderKey() {
   $("travelPreset").value = String(total);
   if (!sameTravel || $("travelPreset").selectedIndex < 0) $("travelPreset").value = "";
   const k = profile?.keys[selected];
-  $("keyTitle").textContent = `${INPUTS[selected].label} 캘리브레이션`;
+  $("keyTitle").textContent = `${mappedInputLabel(selected)} 캘리브레이션`;
   if (!k) {
     $("endpoints").textContent = "키보드를 연결하세요.";
     return;
@@ -536,6 +539,7 @@ $("owlabPreset").onclick = () => {
   log("Owlab Ti HE 3.4 mm 기준을 선택했습니다. ‘선택 키에 적용’으로 곡선을 적용하세요.");
 };
 function controls() {
+  renderMappingSource();
   const mutable =
     connected &&
     !busy &&
@@ -744,12 +748,14 @@ function renderAdcWindows() {
     const row = document.createElement("tr");
     const label = document.createElement("th");
     label.scope = "row";
-    label.textContent = control.label;
+    label.textContent = `Hall ${key + 1}`;
     row.append(label);
-    for (const state of adcApplied) {
+    for (const [side, state] of adcApplied.entries()) {
       const cell = document.createElement("td");
       // Firmware through v0.3.35 reported zero for the mixed boot profile.
-      cell.textContent = state ? adcWindowLabel(state.window || (key === 4 ? 8 : 1)) : "미확인";
+      const id = side * 7 + key;
+      cell.textContent = `${inputBindingLabel(id, profile?.bindings)} · ${state ? adcWindowLabel(state.window || (key === 4 ? 8 : 1)) : "미확인"}`;
+      cell.title = mappedInputLabel(id);
       row.append(cell);
     }
     return row;
@@ -1066,7 +1072,7 @@ for (const input of INPUTS.filter((i) => i.id < 14)) {
   chip.id = `batch-key-${input.id}`;
   chip.className = "batch-key-state";
   chip.innerHTML = "<span></span><small>대기</small>";
-  chip.querySelector("span").textContent = input.label.replace(" 위치", "");
+  chip.querySelector("span").textContent = mappedInputLabel(input.id);
   $("batchKeyStates").append(chip);
 }
 function renderBatch() {
@@ -1115,6 +1121,7 @@ function renderBatch() {
       button = $(`key-${i}`),
       chip = $(`batch-key-${i}`);
     if (!chip) continue;
+    chip.querySelector("span").textContent = mappedInputLabel(i);
     const applied = batchOutcome?.appliedKeys.includes(i) ?? false;
     const usable = batch.state === "press" || batch.state === "frozen";
     const detected = usable && !!row?.detected,
@@ -1217,7 +1224,7 @@ for (const [id, code] of [
       if (code === 2) {
         await refresh();
         log(
-          `${INPUTS[target].label} 보정 RAM 적용 완료. 다음 키를 선택하거나 작동점 · RT를 설정하세요.`,
+          `${mappedInputLabel(target)} 보정 RAM 적용 완료. 다음 키를 선택하거나 작동점 · RT를 설정하세요.`,
         );
       } else if (code === 3) log("보정을 취소했습니다.");
       else
@@ -1475,15 +1482,16 @@ function renderMeasurement() {
   const names = {
     idle: "측정 전 · 모든 키에서 손을 떼고 시작하세요.",
     baseline: "기준 수집 중 · 모든 키에서 손을 떼세요.",
-    ready: `기준 수집 완료 · ${INPUTS[measure.selectedKey ?? 0].label} 하나만 끝까지 누르고 ②를 클릭하세요.`,
+    ready: `기준 수집 완료 · ${mappedInputLabel(measure.selectedKey ?? 0)} 하나만 끝까지 누르고 ②를 클릭하세요.`,
     pressed: "비교 수집 중 · 선택 키 하나만 누르고 다른 키는 건드리지 마세요.",
-    done: `측정 완료 · ${INPUTS[measure.selectedKey ?? 0].label} 누름 기준, 나머지 13키의 변화입니다.`,
+    done: `측정 완료 · ${mappedInputLabel(measure.selectedKey ?? 0)} 누름 기준, 나머지 13키의 변화입니다.`,
     error: measure.error,
   };
   $("measureState").textContent = names[measure.state];
   const r = measure.result();
-  if (r && drawnMeasurement !== r.selectedKey + ":" + measure.ended) {
-    drawnMeasurement = r.selectedKey + ":" + measure.ended;
+  const measurementView = r ? `${r.selectedKey}:${measure.ended}:${JSON.stringify(profile?.bindings)}` : null;
+  if (r && drawnMeasurement !== measurementView) {
+    drawnMeasurement = measurementView;
     const pressed = r.keys[r.selectedKey];
     const moved =
       pressed.peakAbsDeltaRaw > Math.max(5, pressed.baseline.stddev * 3);
@@ -1495,7 +1503,7 @@ function renderMeasurement() {
       .sort((a, b) => b.peakAbsDeltaRaw - a.peakAbsDeltaRaw)) {
       const tr = document.createElement("tr");
       for (const value of [
-        INPUTS[row.key].label,
+        mappedInputLabel(row.key),
         fmt(row.meanDeltaRaw),
         fmt(row.peakAbsDeltaRaw),
         row.peakPercent === null ? "미보정" : `${fmt(row.peakPercent)}%`,
@@ -1555,7 +1563,7 @@ window.addEventListener("pagehide", () => {
   if (client) client.transport.close().catch(() => {});
 });
 rhythm = new RhythmLab({
-  getContext: () => ({ selected, label: INPUTS[selected].label, profile, travelMm, info,
+  getContext: () => ({ selected, label: mappedInputLabel(selected), profile, travelMm, info,
     available: connected && !busy && !autoFit?.active && !autoFit?.applying && !calibrationActive() && !batchActive() &&
       !["baseline", "ready", "pressed"].includes(measure.state) && !!latest[INPUTS[selected].side]?.fresh }),
   prepare: async () => {
@@ -1577,7 +1585,7 @@ rhythm = new RhythmLab({
   onLog: log,
 });
 function autoFitContext() {
-  return { selected, label: INPUTS[selected].label, profile, travelMm, info, connected,
+  return { selected, label: mappedInputLabel(selected), profile, travelMm, info, connected,
     identity: preferenceKey, adcSetting: adcApplied,
     available: connected && !busy && !rhythm?.active && !calibrationActive() && !batchActive() &&
       !["baseline", "ready", "pressed"].includes(measure.state) && !!latest[INPUTS[selected].side]?.fresh };

@@ -91,7 +91,7 @@ export class AutoFitWizard {
     if (!this.active) $("autoFitProgress").value = this.phases[phase.id] ? 1 : 0;
     $("autoFitKey").textContent = this.source?.label ?? (context.selected < 14 ? context.label : "Hall 키 선택");
     $("autoFitInstruction").textContent = retriggerEnabled ? "미해제 재입력을 끈 뒤 자동 맞춤을 진행하세요. 짧은 USB 해제·눌림은 이 측정으로 검증할 수 없습니다."
-      : available || this.active ? phase.instruction : "캘리브레이션을 완료한 Hall 키를 선택하세요.";
+      : available || this.active ? `${this.source?.label ?? context.label} · ${phase.instruction}` : "캘리브레이션을 완료한 Hall 키를 선택하세요.";
     $("autoFitStart").textContent = `${phase.title} · ${phase.seconds}초 측정`;
     $("autoFitStart").disabled = !available || this.active || this.applying || this.applied;
     $("autoFitStop").disabled = !this.active || this.applying;
@@ -251,6 +251,7 @@ export class AutoFitWizard {
   export() {
     if ($("autoFitExport").disabled) return;
     const record = { schema: "split-beat-auto-fit-v1", ...this.input(), key: this.source.key,
+      label: this.source.label, binding: clone(this.source.profile.bindings[this.source.key]),
       demo: this.source.demo, hardwareRevision: this.source.hardwareRevision, firmware: this.source.firmware,
       result: this.result, applied: this.applied, verification: this.verification ?? null, previous: this.previous };
     const url = URL.createObjectURL(new Blob([JSON.stringify(record, null, 2)], { type: "application/json" }));

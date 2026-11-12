@@ -417,8 +417,9 @@ small {
   width: 50%;
   border-radius: 5px;
 }
-.direction .name {
-  font-size: 11px;
+.control .key.direction .name {
+  font-size: 8px;
+  white-space: nowrap;
 }
 .direction .travel {
   display: none;

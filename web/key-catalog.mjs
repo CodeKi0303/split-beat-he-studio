@@ -115,7 +115,7 @@ export function bindingLabel(binding) {
   if (!binding) return "미지정";
   switch (binding.kind) {
     case 0:
-      return "사용 안 함";
+      return "미지정";
     case 1:
     case 6: {
       const labels = MODIFIERS.filter((m) => binding.modifiers & m.bit).map(
@@ -123,7 +123,7 @@ export function bindingLabel(binding) {
       );
       const keys = binding.kind === 6 ? binding.keys : binding.code ? [binding.code] : [];
       for (const key of keys) labels.push(keyNames.get(key) ?? hex(key));
-      return labels.join(" + ") || "일반 키 없음";
+      return labels.join(" + ") || "미지정";
     }
     case 2:
       return binding.code === 1 ? "스크롤 ↑" : "스크롤 ↓";

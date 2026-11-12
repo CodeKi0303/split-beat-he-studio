@@ -1,0 +1,34 @@
+// Generated from default-bindings.json by tools/generate_default_bindings.mjs.
+// Only disconnected preview and a fresh simulator use these defaults.
+const records = [
+  {"input":0,"kind":1,"code":43,"modifiers":0},
+  {"input":1,"kind":1,"code":4,"modifiers":0},
+  {"input":2,"kind":1,"code":22,"modifiers":0},
+  {"input":3,"kind":1,"code":7,"modifiers":0},
+  {"input":4,"kind":1,"code":9,"modifiers":0},
+  {"input":5,"kind":1,"code":225,"modifiers":0},
+  {"input":6,"kind":1,"code":44,"modifiers":0},
+  {"input":7,"kind":1,"code":40,"modifiers":0},
+  {"input":8,"kind":1,"code":51,"modifiers":0},
+  {"input":9,"kind":1,"code":15,"modifiers":0},
+  {"input":10,"kind":1,"code":14,"modifiers":0},
+  {"input":11,"kind":1,"code":13,"modifiers":0},
+  {"input":12,"kind":1,"code":229,"modifiers":0},
+  {"input":13,"kind":1,"code":0,"modifiers":64},
+  {"input":14,"kind":1,"code":58,"modifiers":0},
+  {"input":15,"kind":1,"code":62,"modifiers":0},
+  {"input":16,"kind":1,"code":41,"modifiers":0},
+  {"input":17,"kind":1,"code":79,"modifiers":0},
+  {"input":18,"kind":1,"code":80,"modifiers":0},
+  {"input":19,"kind":1,"code":40,"modifiers":0},
+  {"input":20,"kind":1,"code":58,"modifiers":0},
+  {"input":21,"kind":1,"code":59,"modifiers":0},
+  {"input":22,"kind":1,"code":75,"modifiers":0},
+  {"input":23,"kind":1,"code":78,"modifiers":0},
+  {"input":24,"kind":2,"code":1,"modifiers":0},
+  {"input":25,"kind":2,"code":-1,"modifiers":0},
+  {"input":26,"kind":1,"code":82,"modifiers":0},
+  {"input":27,"kind":1,"code":81,"modifiers":0}
+];
+export const DEFAULT_BINDINGS = Object.freeze(records.map(binding => Object.freeze(binding)));
+export function defaultBindings() { return structuredClone(DEFAULT_BINDINGS); }

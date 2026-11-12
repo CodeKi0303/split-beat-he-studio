@@ -114,7 +114,8 @@ export class RhythmLab {
     this.startedAt = performance.now();
     this.finishReason = null;
     this.outputStopped = false;
-    this.recordContext = { key: context.selected, label: context.label, demo: context.info.demo,
+    this.recordContext = { key: context.selected, label: context.label,
+      binding: structuredClone(context.profile.bindings[context.selected]), demo: context.info.demo,
       hardwareRevision: context.info.board_rev,
       firmware: `${context.info.major}.${context.info.minor}.${context.info.patch}`, totalTravelMm: context.travelMm[context.selected] };
     $("rhythmState").textContent = "키 출력을 끄고 측정을 준비합니다…";
@@ -182,7 +183,7 @@ export class RhythmLab {
       this.viewEnd = Math.max(8000, elapsed + 800);
       const left = this.schedule.countInMs - elapsed;
       $("rhythmState").textContent = left > 0 ? `준비 ${Math.max(1, Math.ceil(left / this.schedule.quarterMs))} · 모든 키에서 손을 떼세요`
-        : `${this.recordContext.demo ? "데모 · " : ""}${this.schedule.settings.mode === "hold" ? "음이 이어지는 동안 유지 → 소리가 끊기면 해제" : "박자에 맞춰 누르고 놓으세요"} · ${fmt(elapsed / 1000, 0)} / ${fmt(this.schedule.durationMs / 1000, 0)}초`;
+        : `${this.recordContext.demo ? "데모 · " : ""}${this.recordContext.label} · ${this.schedule.settings.mode === "hold" ? "음이 이어지는 동안 유지 → 소리가 끊기면 해제" : "박자에 맞춰 누르고 놓으세요"} · ${fmt(elapsed / 1000, 0)} / ${fmt(this.schedule.durationMs / 1000, 0)}초`;
       const last = this.capture.samples.at(-1);
       $("rhythmLive").textContent = last ? `${fmt(last.recognizedMm, 2)} mm · ${last.pressed ? "눌림" : "해제"}` : "샘플 대기";
       $("rhythmEdges").textContent = `${this.capture.edges.filter((e) => e.type === "press").length} / ${this.capture.edges.filter((e) => e.type === "release").length}`;

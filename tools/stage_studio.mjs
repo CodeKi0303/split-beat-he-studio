@@ -11,7 +11,7 @@ if (Boolean(assetDirectory) !== Boolean(tag)) throw Error("Usage: node tools/sta
 
 const files = new Map();
 for (const file of await readdir(resolve(root, "web"), { withFileTypes: true })) {
-  if (file.isFile() && /\.(?:html|mjs|css)$/.test(file.name) && !["demo.mjs", "fw-demo.mjs"].includes(file.name)) {
+  if (file.isFile() && (/\.(?:html|mjs|css)$/.test(file.name) || file.name === "default-bindings.json") && !["demo.mjs", "fw-demo.mjs"].includes(file.name)) {
     files.set(file.name, resolve(root, "web", file.name));
   }
 }

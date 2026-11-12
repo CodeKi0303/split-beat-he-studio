@@ -37,7 +37,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "Caps",
     sourceRef: "U1001",
   },
   {
@@ -52,7 +51,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "Q",
     sourceRef: "U1002",
   },
   {
@@ -67,7 +65,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 12,
     shape: "key",
-    defaultLabel: "W",
     sourceRef: "U1003",
   },
   {
@@ -82,7 +79,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 12,
     shape: "key",
-    defaultLabel: "E",
     sourceRef: "U1004",
   },
   {
@@ -97,7 +93,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 12,
     shape: "key",
-    defaultLabel: "R",
     sourceRef: "U1005",
   },
   {
@@ -112,7 +107,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "Shift",
     sourceRef: "U1006",
   },
   {
@@ -127,7 +121,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 12,
     shape: "key",
-    defaultLabel: "Space",
     sourceRef: "U1007",
   },
   {
@@ -142,7 +135,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "1",
     sourceRef: "SW1201",
   },
   {
@@ -157,7 +149,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 12,
     shape: "key",
-    defaultLabel: "4",
     sourceRef: "SW1204",
   },
   {
@@ -172,7 +163,6 @@ export const CONTROLS = [
     height: 20,
     angle: 0,
     shape: "knob",
-    defaultLabel: "Enter / 음량",
     sourceRef: "ENC1401",
   },
   {
@@ -187,7 +177,6 @@ export const CONTROLS = [
     height: 15.2,
     angle: 12,
     shape: "wheel",
-    defaultLabel: "스크롤",
     sourceRef: "L_J1202",
   },
   {
@@ -202,7 +191,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "Backspace",
     sourceRef: "U1101",
   },
   {
@@ -217,7 +205,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "U",
     sourceRef: "U1102",
   },
   {
@@ -232,7 +219,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: -12,
     shape: "key",
-    defaultLabel: "I",
     sourceRef: "U1103",
   },
   {
@@ -247,7 +233,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: -12,
     shape: "key",
-    defaultLabel: "O",
     sourceRef: "U1104",
   },
   {
@@ -262,7 +247,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: -12,
     shape: "key",
-    defaultLabel: "P",
     sourceRef: "U1105",
   },
   {
@@ -277,7 +261,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "R Shift",
     sourceRef: "U1106",
   },
   {
@@ -292,7 +275,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: -12,
     shape: "key",
-    defaultLabel: "Space",
     sourceRef: "U1107",
   },
   {
@@ -307,7 +289,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: 0,
     shape: "key",
-    defaultLabel: "0",
     sourceRef: "SW1301",
   },
   {
@@ -322,7 +303,6 @@ export const CONTROLS = [
     height: 18.05,
     angle: -12,
     shape: "key",
-    defaultLabel: "7",
     sourceRef: "SW1304",
   },
   {
@@ -337,7 +317,6 @@ export const CONTROLS = [
     height: 20,
     angle: 0,
     shape: "knob",
-    defaultLabel: "Enter / 음량",
     sourceRef: "ENC1501",
   },
   {
@@ -352,7 +331,6 @@ export const CONTROLS = [
     height: 15.2,
     angle: -12,
     shape: "wheel",
-    defaultLabel: "스크롤",
     sourceRef: "R_J1302",
   },
 ];

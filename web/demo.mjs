@@ -1,6 +1,7 @@
 // Protocol-level simulation only: no navigator.hid, network or OS key injection.
 import { rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
 import { recognizedTravel } from "./recognized-travel.mjs?v=studio-recognized-travel1";
+import { defaultBindings } from "./default-bindings.mjs?v=studio-default-layout1";
 import {
   OP,
   CAP_KEY_CHORD,
@@ -29,12 +30,7 @@ const fresh = () =>
       top_deadzone: 20,
       noise_deadband: 5,
     })),
-    bindings: Array.from({ length: 28 }, (_, input) => ({
-      input,
-      kind: input < 20 ? 1 : 2,
-      code: input < 20 ? 4 + input : input % 2 ? -1 : 1,
-      modifiers: 0,
-    })),
+    bindings: defaultBindings(),
   });
 
 // Snapshot-rate simulation of src/engine.c noise filtering and
