@@ -91,7 +91,7 @@ DemoTransport.prototype.command = function(op, payload) {
     assert.equal(await page.locator("#generation").textContent(), "0");
   };
 
-  await page.goto("http://127.0.0.1:8877/");
+  await page.goto(process.env.C77_WEB_URL || "http://127.0.0.1:8877/");
   assert.doesNotMatch(await page.locator("body").innerText(), /실제 장치 연결은 한 번에 한 설정창만|센서 데이터는 외부 서버로 보내지 않습니다/);
   await installStudioTestHid(page);
   await page.locator("#connect").click();

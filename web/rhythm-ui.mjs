@@ -1,6 +1,7 @@
 import { RhythmAudio } from "./rhythm-audio.mjs?v=studio-owlab1";
-import { RhythmCapture, makeSchedule } from "./rhythm-analysis.mjs?v=studio-recognized-travel1";
+import { RhythmCapture, makeSchedule, matchTimingEdges } from "./rhythm-analysis.mjs?v=studio-rhythm-practice2";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
+import { RhythmPracticeView, practiceInputStart } from "./rhythm-visuals.mjs?v=studio-rhythm-practice2";
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 1) => Number.isFinite(v) ? v.toFixed(n) : "—";
@@ -12,6 +13,7 @@ export class RhythmLab {
   constructor({ getContext, prepare, onChange, onLog }) {
     Object.assign(this, { getContext, prepare, onChange, onLog });
     this.audio = new RhythmAudio();
+    this.practice = new RhythmPracticeView();
     this.active = false;
     this.starting = false;
     this.capture = null;
@@ -69,9 +71,11 @@ export class RhythmLab {
     $("rhythmHoldSettings").hidden = $("rhythmMode").value !== "hold";
     try {
       const schedule = makeSchedule(this.settings());
+      this.previewSchedule = schedule;
       $("rhythmGridInfo").textContent = `4/4 · 한 칸 ${fmt(schedule.stepMs)} ms · 준비 포함 ${fmt(schedule.durationMs / 1000, 0)}초`;
       this.settingsError = null;
     } catch (error) {
+      this.previewSchedule = null;
       this.settingsError = error.message;
       $("rhythmGridInfo").textContent = error.message;
     }
@@ -92,6 +96,7 @@ export class RhythmLab {
     $("rhythmApplyOffset").disabled = this.active || !proposal?.withinRange || !Number.isFinite(proposal?.offsetMs);
     $("rhythmKey").textContent = this.active && this.recordContext ? this.recordContext.label
       : context.selected < 14 ? context.label : "Hall 키를 선택하세요";
+    this.drawPractice();
   }
   async start() {
     if (this.active || $("rhythmStart").disabled) return;
@@ -108,6 +113,7 @@ export class RhythmLab {
     this.active = this.starting = true;
     this.capture = this.result = null;
     this.events = [];
+    this.visualMatches = null;
     this.audioMeta = null;
     this.origin = null;
     this.lastSampleAt = performance.now();
@@ -141,6 +147,7 @@ export class RhythmLab {
           this.origin = metadata.originPerformanceMs;
           this.starting = false;
           this.lastSampleAt = performance.now();
+          this.lastDraw = this.lastPracticeDraw = 0;
           this.animate();
         },
         onEvent: (event) => {
@@ -182,12 +189,19 @@ export class RhythmLab {
       this.lastDraw = now;
       this.viewEnd = Math.max(8000, elapsed + 800);
       const left = this.schedule.countInMs - elapsed;
-      $("rhythmState").textContent = left > 0 ? `준비 ${Math.max(1, Math.ceil(left / this.schedule.quarterMs))} · 모든 키에서 손을 떼세요`
+      $("rhythmState").textContent = elapsed < practiceInputStart(this.schedule) ? `한 마디 준비 · ${Math.min(4, Math.max(1, Math.ceil(left / this.schedule.quarterMs)))}박 남음 · 모든 키에서 손을 떼세요`
+        : left > 0 ? "첫 노트를 준비하세요 · 타이밍 보정이 반영된 입력 기준선을 따르세요"
         : `${this.recordContext.demo ? "데모 · " : ""}${this.recordContext.label} · ${this.schedule.settings.mode === "hold" ? "음이 이어지는 동안 유지 → 소리가 끊기면 해제" : "박자에 맞춰 누르고 놓으세요"} · ${fmt(elapsed / 1000, 0)} / ${fmt(this.schedule.durationMs / 1000, 0)}초`;
       const last = this.capture.samples.at(-1);
       $("rhythmLive").textContent = last ? `${fmt(last.recognizedMm, 2)} mm · ${last.pressed ? "눌림" : "해제"}` : "샘플 대기";
       $("rhythmEdges").textContent = `${this.capture.edges.filter((e) => e.type === "press").length} / ${this.capture.edges.filter((e) => e.type === "release").length}`;
-      this.draw();
+      this.drawChart();
+    }
+    // Keep falling notes smooth without recomputing the sensor graph or the
+    // complete statistical analysis on every animation frame.
+    if (!this.lastPracticeDraw || now - this.lastPracticeDraw >= 1000 / 60) {
+      this.lastPracticeDraw = now;
+      this.drawPractice(elapsed);
     }
     this.frame = requestAnimationFrame(() => this.animate());
   }
@@ -251,6 +265,30 @@ export class RhythmLab {
     this.draw();
   }
   draw() {
+    this.drawChart();
+    this.drawPractice();
+  }
+  drawPractice(elapsedMs) {
+    const source = this.active ? this.capture : this.result;
+    const schedule = source?.schedule ?? this.previewSchedule;
+    const samples = source?.samples ?? [];
+    let matches = this.result?.summary?.matches ?? [], extraEdges = this.result?.summary?.extraEdges ?? [];
+    if (this.active && this.capture) {
+      const signature = `${this.capture.edges.length}:${this.events.length}`;
+      if (!this.visualMatches || signature !== this.visualMatches.signature) {
+        this.visualMatches = { signature, ...matchTimingEdges(schedule.targets, this.capture.edges, Math.min(150, schedule.stepMs * .48)) };
+      }
+      ({ matches, extraEdges } = this.visualMatches);
+    }
+    const context = this.getContext(), recorded = Boolean(source && this.recordContext);
+    this.practice.render({ schedule, matches, extraEdges, samples,
+      elapsedMs: elapsedMs ?? (this.active ? this.origin === null ? 0 : performance.now() - this.origin
+        : Math.min(samples.at(-1)?.timeMs ?? 0, this.viewEnd)),
+      active: this.active, starting: this.starting, hasResult: Boolean(this.result),
+      label: recorded ? this.recordContext.label : context.selected < 14 ? context.label : "Hall 키를 선택하세요",
+      demo: recorded ? this.recordContext.demo : Boolean(context.info?.demo) });
+  }
+  drawChart() {
     const canvas = $("rhythmChart"), rect = canvas.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);

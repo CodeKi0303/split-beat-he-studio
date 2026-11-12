@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { validateSettings, makeSchedule, SampledRT, RhythmCapture, depthAt } from "../web/rhythm-analysis.mjs";
+import { validateSettings, makeSchedule, matchTimingEdges, SampledRT, RhythmCapture, depthAt } from "../web/rhythm-analysis.mjs";
 
 const key = { key: 0, flags: 7, released: 1000, pressed: 3000, actuation: 200,
   rt_press: 100, rt_release: 100, top_deadzone: 20, bottom_deadzone: 0, noise_deadband: 5 };
@@ -13,6 +13,36 @@ const sample = (timeMs, sequence, travel = 0, pressed = false, extra = {}) => ({
 assert.equal(makeSchedule({ bpm: 120, division: 8 }).stepMs, 250);
 assert.equal(makeSchedule({ bpm: 120, division: 12 }).stepMs, 1000 / 6);
 assert.equal(makeSchedule({ bpm: 120, division: 16 }).stepMs, 125);
+for (const division of [4, 8, 12, 16, 24, 32]) {
+  for (const mode of ["tap", "hold"]) {
+    const schedule = makeSchedule({ bpm: 120, division, mode, bars: 1, holdSteps: 3, gapSteps: 1 });
+    const preparation = schedule.cues.filter((cue) => cue.type === "count-in");
+    const performance = schedule.cues.filter((cue) => cue.type !== "count-in");
+    assert.equal(preparation.length, division);
+    assert.equal(schedule.countInMs, 2000);
+    assert.equal(schedule.stepsPerBeat, division / 4);
+    assert.equal(preparation.filter((cue) => cue.accent).length, 1);
+    assert.deepEqual(preparation.filter((cue) => cue.beatAccent).map((cue) => cue.onMs), [0, 500, 1000, 1500]);
+    for (let i = 0; i < preparation.length; i++) {
+      const cue = preparation[i], next = preparation[i + 1] ?? performance[0];
+      assert.equal(cue.step, i);
+      assert.equal(cue.beat, Math.floor(i / schedule.stepsPerBeat));
+      assert.ok(Math.abs(next.onMs - cue.onMs - schedule.stepMs) < 1e-9);
+      assert.ok(cue.offMs > cue.onMs && cue.offMs < next.onMs);
+      assert.ok(!schedule.targets.some((target) => target.noteId === cue.id));
+    }
+    assert.equal(performance[0].onMs, schedule.countInMs);
+    assert.equal(schedule.targets.length, performance.length * 2);
+    if (mode === "hold") assert.equal(performance[0].offMs, 2000 + 3 * schedule.stepMs);
+  }
+}
+// Smallest/largest supported tempo and subdivision keep bounded, ordered cues.
+for (const bpm of [20, 300]) for (const division of [4, 32]) {
+  const schedule = makeSchedule({ bpm, division, bars: bpm === 20 ? 8 : 16 });
+  assert.ok(schedule.durationMs <= 120000);
+  assert.ok(schedule.cues.length <= 544);
+  assert.ok(schedule.cues.every((cue, i, all) => cue.offMs > cue.onMs && (!i || cue.onMs > all[i - 1].onMs)));
+}
 assert.equal(makeSchedule({ bars: 1 }).targets.length, 16);
 assert.equal(makeSchedule({ mode: "hold", bars: 1 }).targets.length, 4);
 assert.equal(makeSchedule({ delayMs: 30 }).targets[0].targetMs, 2030);
@@ -23,6 +53,30 @@ assert.throws(() => validateSettings({ bpm: NaN }));
 assert.throws(() => validateSettings({ bpm: 20, bars: 16 }));
 assert.throws(() => validateSettings({ delayMs: -1, delayMode: "input" }));
 assert.throws(() => make({}, { keyConfig: { ...key, flags: 3 } }));
+
+// Preparation clicks and practice presses do not become scored notes or extras.
+const prepOnly = make({ bars: 1 });
+for (let t = 0, seq = 0; t <= 4500; t += 10, seq++) {
+  const down = t >= 250 && t < 1800 && t % 250 < 30;
+  prepOnly.addSample(sample(t, seq, down ? 500 : 0, down));
+}
+assert.ok(prepOnly.edges.length > 0, "Raw preparation observations are retained");
+assert.equal(prepOnly.summary().extraEdges.length, 0);
+assert.equal(prepOnly.summary().matchedTargets, 0);
+assert.equal(prepOnly.summary().unmatchedTargets, 16);
+assert.equal(prepOnly.summary().simulated.matchedTargets, 0);
+// A legitimate early first press remains scoreable, including an input offset
+// that moves the first target into the audible preparation bar.
+for (const delayMs of [0, 300]) {
+  const schedule = makeSchedule({ bars: 1, delayMode: "input", delayMs });
+  const target = schedule.targets[0];
+  const edge = { id: "early", type: "press", timeMs: target.targetMs - 100,
+    earliestMs: target.targetMs - 110, latestMs: target.targetMs - 90 };
+  const result = matchTimingEdges(schedule.targets, [edge], 120);
+  assert.equal(result.matches[0].edge, edge);
+  assert.equal(result.matches[0].timing, "early");
+  assert.equal(result.extraEdges.length, 0);
+}
 
 // Firmware parity: direction, ADC deadband, release/repress and lower zone.
 const rt = new SampledRT(key);
@@ -134,6 +188,10 @@ assert.equal(summary.recommendation.personalOffset.offsetMs, 15);
 assert.equal(summary.matches[0].rawSoundErrorMs, 15);
 assert.equal(summary.matches[0].correctedErrorMs, -5);
 assert.equal(summary.recommendation.applied, false);
+const liveTiming = matchTimingEdges(timed.schedule.targets, timed.edges, summary.matchWindowMs);
+assert.deepEqual(liveTiming.matches.map((match) => [match.id, match.edge?.id, match.errorMs, match.timing]),
+  summary.matches.map((match) => [match.id, match.edge?.id, match.errorMs, match.timing]));
+assert.deepEqual(liveTiming.extraEdges, summary.extraEdges);
 assert.equal(make().summary().recommendation.personalOffset.offsetMs, null);
 
 // Hold dropouts are interior releases, distinct from the intended final release.

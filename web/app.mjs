@@ -1,6 +1,6 @@
 import { BatchCalibration } from "./batch-calibration.mjs?v=studio-owlab1";
 import { fetchStudioRelease, firmwareVersionNumber } from "./studio-release.mjs";
-import { RhythmLab } from "./rhythm-ui.mjs?v=studio-default-layout1";
+import { RhythmLab } from "./rhythm-ui.mjs?v=studio-rhythm-practice2";
 import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-default-layout1";
 import { mountRTSettingHelp } from "./rt-setting-help.mjs?v=studio-recognized-travel1";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
@@ -32,6 +32,7 @@ import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
 import { inputBinding, inputBindingLabel, inputKeycapLabel, inputLabel } from "./input-labels.mjs?v=studio-default-layout1";
+import { noiseTargets, proposeNoiseSettings, sensorSeries, relativeSensorSeries } from "./sensor-settings.mjs?v=studio-sensor-lab1";
 import {
   TelemetryStore,
   InterferenceSession,
@@ -49,7 +50,7 @@ const titles = {
   mapping: "키 매핑",
   performance: "작동점 · RT",
   calibration: "캘리브레이션",
-  diagnostics: "센서 진단",
+  diagnostics: "센서 진단/설정",
   rhythm: "리듬 · RT 측정",
   profiles: "프로필",
 };
@@ -59,7 +60,6 @@ const keyFields = {
   rtRelease: "rt_release",
   topDeadzone: "top_deadzone",
   bottomDeadzone: "bottom_deadzone",
-  noise: "noise_deadband",
 };
 let client = null,
   profile = null,
@@ -80,7 +80,7 @@ let latest = [null, null],
   travelMm = Array(14).fill(4),
   preferenceKey = "split-studio:preview",
   calStage = null;
-const telemetry = new TelemetryStore(),
+const telemetry = new TelemetryStore({ windowMs: 60000, maxSamples: 3000 }),
   measure = new InterferenceSession();
 const batch = new BatchCalibration();
 let adcComparison = [], lastAdcComparison = -Infinity;
@@ -89,6 +89,9 @@ const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TU
 const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
 const comparingAdc = () => adcTuningSupported() && selected < 7 && $("diagnosticAdcCompare").checked;
 const selectedHall = new Set([0]), performanceDirty = new Set();
+let noiseDirty = false, noiseTargetKey = "";
+const impactHidden = new Set();
+const diagnosticWindow = () => Number($("diagnosticWindow").value);
 const performanceTargets = () =>
   hall() ? [...selectedHall].sort((a, b) => a - b) : [];
 let batchOriginal = null,
@@ -148,7 +151,14 @@ function setTab(name) {
   });
   $("pageTitle").textContent = titles[name];
   $("performanceSelectionToolbar").hidden = name !== "performance";
+  const pending = [...performanceDirty].map((id) => ({ id, value: $(id).value, checked: $(id).checked, indeterminate: $(id).indeterminate }));
   renderSelection();
+  for (const draft of pending) {
+    Object.assign($(draft.id), { value: draft.value, checked: draft.checked, indeterminate: draft.indeterminate });
+    if ($(draft.id + "Range")) $(draft.id + "Range").value = draft.value;
+    performanceDirty.add(draft.id);
+  }
+  if (pending.length) { renderTravel(); controls(); }
   if (name === "diagnostics") renderDiagnostics();
   if (name === "rhythm") { rhythm?.updateContext(); rhythm?.draw(); }
 }
@@ -373,6 +383,7 @@ function renderSelection() {
   renderBoard();
   renderBinding();
   renderKey();
+  renderNoiseSettings();
   renderCalibration();
   renderDiagnostics();
   renderAdcWindows();
@@ -413,9 +424,8 @@ function renderKey() {
   $("curveId").value = sameCurve ? String(k.curve_id ?? 0) : "";
   let hasMixed = $("enabled").indeterminate || $("rt").indeterminate || $("retrigger").indeterminate || !sameTravel || !sameCurve;
   for (const [id, field] of Object.entries(keyFields)) {
-    const limit = id === "noise" ? 100 : Math.min(...(targets.length ? targets : [selected]).map((key) => travelMm[key]));
-    const valueFor = (key) => id === "noise" ? String(profile.keys[key][field])
-      : normalizedToMm(profile.keys[key][field] ?? 0, travelMm[key]).toFixed(2);
+    const limit = Math.min(...(targets.length ? targets : [selected]).map((key) => travelMm[key]));
+    const valueFor = (key) => normalizedToMm(profile.keys[key][field] ?? 0, travelMm[key]).toFixed(2);
     const mixed = targets.some((key) => valueFor(key) !== valueFor(selected));
     hasMixed ||= mixed;
     $(id).max = String(limit);
@@ -489,7 +499,40 @@ for (const id of ["actuation", "rtPress", "rtRelease", "topDeadzone", "bottomDea
     renderTravel();
   };
 }
-$("noise").oninput = () => markPerformanceDirty("noise");
+function renderNoiseSettings() {
+  const ids = hall() ? noiseTargets($("noiseScope").value, selected) : [];
+  const targetKey = ids.join(",");
+  if (targetKey !== noiseTargetKey) noiseDirty = false;
+  noiseTargetKey = targetKey;
+  if (!profile || !ids.length) {
+    $("noiseApplied").textContent = "키보드를 연결하고 Hall 키를 선택하세요.";
+    return;
+  }
+  const values = ids.map((id) => profile.keys[id].noise_deadband);
+  const same = values.every((value) => value === values[0]);
+  if (!noiseDirty) {
+    $("noise").value = same ? String(values[0]) : "";
+    $("noise").placeholder = same ? "" : "혼합";
+  }
+  $("noiseApplied").textContent = `${ids.length === 1 ? mappedInputLabel(ids[0]) : `${ids.length}개 Hall 키`} · 현재 ${same ? `${values[0]} ADC` : `${Math.min(...values)}–${Math.max(...values)} ADC (혼합)`}`;
+}
+$("noise").oninput = () => { noiseDirty = true; controls(); };
+$("noiseScope").onchange = () => { noiseDirty = false; renderNoiseSettings(); controls(); };
+$("applyNoise").onclick = () => {
+  if ($("applyNoise").disabled) return;
+  action(async () => {
+    const ids = noiseTargets($("noiseScope").value, selected);
+    const candidates = proposeNoiseSettings(profile, ids, Number($("noise").value));
+    const outcome = await applyPerformanceSettings(client, profile, candidates);
+    if (outcome.profile) profile = outcome.profile;
+    if (outcome.complete) noiseDirty = false;
+    telemetry.clear(); adcComparison = [];
+    measure.reset(); renderMeasurement();
+    renderNoiseSettings();
+    if (!outcome.complete) throw Error(outcome.error || "노이즈 설정의 적용값을 확인하지 못했습니다.");
+    log(`${ids.length}개 키 노이즈 설정 RAM 적용 확인 · 출력 꺼짐 · 영구 저장은 별도입니다.`);
+  });
+};
 $("curveId").onchange = () => markPerformanceDirty("curveId");
 function changeTravel(value, all = false) {
   try {
@@ -553,9 +596,11 @@ function controls() {
   $("readRightAdc").disabled = !mutable || !latest[0] || latest[0].output_enabled || !latest[1]?.fresh;
   $("adcCompareOption").hidden = !adcTuningSupported() || selected >= 7;
   $("adcCompareLegend").hidden = !comparingAdc();
-  $("applyAdcTuning").disabled = !mutable || !adcPairSupported() || !latest[0] || latest[0].output_enabled || !latest[1]?.fresh;
+  $("applyAdcTuning").disabled = !mutable || !adcPairSupported() || !latest[0] || !latest[1]?.fresh;
   $("applyAdcTuning").title = !adcPairSupported() ? "좌우 설정을 지원하는 펌웨어가 필요합니다." :
     !latest[1]?.fresh ? "오른쪽 키보드 연결이 필요합니다." : "";
+  $("noise").disabled = $("noiseScope").disabled = !mutable || !hall();
+  $("applyNoise").disabled = !mutable || !hall() || !noiseDirty || !$("noise").value.trim() || !$("noise").checkValidity();
   for (const id of ["outputOff", "save", "refresh", "export", "import"])
     $(id).disabled = !mutable;
   $("outputOn").disabled =
@@ -594,7 +639,6 @@ function controls() {
     "rtRelease",
     "topDeadzone",
     "bottomDeadzone",
-    "noise",
     "actuationRange",
     "rtPressRange",
     "rtReleaseRange",
@@ -780,6 +824,9 @@ $("readRightAdc").onclick = () => action(async () => {
 $("applyAdcTuning").onclick = () => action(async () => {
   let applied;
   try {
+    if (await client.output(false) !== false) throw Error("키 출력 해제를 확인하지 못했습니다.");
+    telemetry.clear(); adcComparison = [];
+    measure.reset(); renderMeasurement();
     applied = await client.adcTuning(Number($("adcScanRate").value), Number($("adcWindow").value), { paired: true });
   } catch (error) {
     adcApplied.fill(null);
@@ -894,7 +941,7 @@ async function poll() {
         try {
           const sample = await client.adcCompare(key);
           if (!adcComparison.some((row) => row.key === key && row.sequence === sample.sequence)) {
-            adcComparison = adcComparison.filter((row) => row.time >= time - 10000);
+            adcComparison = adcComparison.filter((row) => row.time >= time - 60000).slice(-1999);
             adcComparison.push({ key, time, ...sample });
           }
         } catch { /* A missed diagnostic snapshot does not stop ordinary status polling. */ }
@@ -983,6 +1030,7 @@ async function connect() {
     loadPreferences();
     client = new KeyboardClient(transport);
     connected = true;
+    noiseDirty = false; noiseTargetKey = "";
     clearTelemetry();
     await refresh();
     log("연결했습니다. 설정할 키를 선택하세요.");
@@ -1012,6 +1060,7 @@ async function disconnect({ disableOutput = true, quiet = false } = {}) {
   profile = null;
   info = null;
   connected = false;
+  noiseDirty = false; noiseTargetKey = "";
   clearTelemetry();
   $("mode").textContent = "연결 안 됨";
   $("releaseNotice").hidden = true;
@@ -1357,7 +1406,7 @@ function drawSignal(series, stats, now, adcView, before = []) {
     min = adcView ? low - padding : Math.max(0, low - padding),
     max = adcView ? high + padding : Math.min(travelMm[selected], high + padding);
   const y = (v) => B - ((v - min) / (max - min)) * (B - T),
-    x = (t) => L + ((t - (now - 10000)) / 10000) * (R - L);
+    x = (t) => L + ((t - (now - diagnosticWindow())) / diagnosticWindow()) * (R - L);
   c.strokeStyle = "#293443";
   c.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -1405,7 +1454,7 @@ function drawSignal(series, stats, now, adcView, before = []) {
   c.stroke();
   c.restore();
   c.fillStyle = "#8491a5";
-  c.fillText("−10초", L, h - 9);
+  c.fillText(`−${diagnosticWindow() / 1000}초`, L, h - 9);
   c.fillText("현재", R - 22, h - 9);
 }
 function drawHistogram(series, stats, adcView) {
@@ -1441,6 +1490,61 @@ function drawHistogram(series, stats, adcView) {
   c.fillText(high, Math.max(L, R - c.measureText(high).width), h - 9);
   c.fillText(`최대 빈도 ${max}`, L, 15);
 }
+const impactColors = ["#b4ed78", "#72d4df", "#f6a35d", "#cfabf5", "#ff9e9c", "#8faeff", "#e8d979", "#81d2ae", "#f6b9dd", "#aab8d1", "#b4b773", "#69c0ec", "#b6957a", "#ffceab"];
+function renderLiveImpact(now) {
+  const scope = $("impactScope").value, side = Math.floor(selected / 7);
+  const rows = relativeSensorSeries(telemetry, selected, now, diagnosticWindow()).filter((row) =>
+    scope === "all" || (scope === "same" ? Math.floor(row.key / 7) === side : Math.floor(row.key / 7) !== side));
+  const legend = $("impactLegend");
+  const signature = rows.map((row) => `${row.key}:${mappedInputLabel(row.key)}`).join("|");
+  if (legend.dataset.signature !== signature) {
+    legend.dataset.signature = signature;
+    legend.replaceChildren(...rows.map((row) => {
+      const button = document.createElement("button");
+      button.type = "button"; button.id = `impact-key-${row.key}`;
+      button.style.setProperty("--series-color", impactColors[row.key]);
+      button.onclick = () => {
+        if (impactHidden.has(row.key)) impactHidden.delete(row.key); else impactHidden.add(row.key);
+        renderDiagnostics();
+      };
+      return button;
+    }));
+  }
+  for (const row of rows) {
+    const button = $(`impact-key-${row.key}`);
+    button.setAttribute("aria-pressed", String(!impactHidden.has(row.key)));
+    button.textContent = `${mappedInputLabel(row.key)} · ${row.samples.length ? `${fmt(row.latestDelta, 0)} ADC` : "대기"}`;
+    button.title = `이 구간 최대 절대 변화 ${fmt(row.peakAbsDelta, 1)} ADC`;
+  }
+  const shown = rows.filter((row) => !impactHidden.has(row.key));
+  const strongest = shown.filter((row) => row.samples.length).sort((a, b) => b.peakAbsDelta - a.peakAbsDelta)[0];
+  $("impactLiveSummary").textContent = strongest
+    ? `${mappedInputLabel(selected)} 관찰 중 · 다른 키 최대 변화 ${mappedInputLabel(strongest.key)} ${fmt(strongest.peakAbsDelta, 1)} ADC · 원인 확인은 아래 비교 측정으로 진행하세요.`
+    : "다른 키의 수신 샘플을 기다립니다.";
+  const ctx = canvasContext("impactChart");
+  if (!ctx) return;
+  const { c, w, h } = ctx, L = 48, R = w - 15, T = 15, B = h - 28;
+  if (!strongest) { c.fillText(shown.length ? "센서 샘플 대기" : "아래 키 이름을 눌러 비교할 키를 선택하세요.", 20, 40); return; }
+  const extent = Math.max(2, ...shown.map((row) => row.peakAbsDelta ?? 0)) * 1.12;
+  const x = (time) => L + (time - now + diagnosticWindow()) / diagnosticWindow() * (R - L);
+  const y = (value) => T + (extent - value) / (2 * extent) * (B - T);
+  for (let i = -2; i <= 2; i++) {
+    const v = extent * i / 2;
+    c.strokeStyle = i ? "#293443" : "#566477";
+    c.beginPath(); c.moveTo(L, y(v)); c.lineTo(R, y(v)); c.stroke();
+    c.fillText(`${v > 0 ? "+" : ""}${fmt(v, 0)}`, 5, y(v) + 3);
+  }
+  c.save(); c.beginPath(); c.rect(L, T, R - L, B - T); c.clip();
+  for (const row of shown) {
+    c.strokeStyle = impactColors[row.key]; c.lineWidth = 1.5; c.beginPath();
+    row.samples.forEach((sample, i) => {
+      if (!i || sample.time - row.samples[i - 1].time > 250) c.moveTo(x(sample.time), y(sample.value));
+      else c.lineTo(x(sample.time), y(sample.value));
+    });
+    c.stroke();
+  }
+  c.restore(); c.fillText(`−${diagnosticWindow() / 1000}초`, L, h - 9); c.fillText("현재", R - 22, h - 9);
+}
 function renderDiagnostics() {
   if (!hall() || activeTab !== "diagnostics") return;
   const now = performance.now();
@@ -1448,8 +1552,8 @@ function renderDiagnostics() {
   const adcView = compare || $("diagnosticAdc").checked;
   $("adcCompareLegend").hidden = !compare;
   const calibrated = !!(profile?.keys[selected]?.flags & 4);
-  const samples = adcView || calibrated ? telemetry.series(selected, now) : [];
-  const pairs = compare ? adcComparison.filter((s) => s.key === selected && s.time >= now - 10000) : [];
+  const samples = adcView || calibrated ? sensorSeries(telemetry, selected, now, diagnosticWindow()) : [];
+  const pairs = compare ? adcComparison.filter((s) => s.key === selected && s.time >= now - diagnosticWindow()) : [];
   const series = compare ? pairs.map((s) => ({ time: s.time, value: s.after })) : samples.map((sample) => ({
     time: sample.time,
     value: adcView ? sample.raw : recognizedTravelToMm(sample.travel, profile.keys[selected], travelMm[selected]),
@@ -1458,7 +1562,7 @@ function renderDiagnostics() {
   const unit = adcView ? "ADC" : "mm";
   const source = compare ? "이동평균 전·후 ADC" : adcView ? "ADC 보고값" : "인식 이동량 (데드존 적용)";
   $("diagnosticSignalLabel").textContent = `${source} · 평균 · ±1σ`;
-  $("signalChart").setAttribute("aria-label", `최근 10초 ${source}와 평균 및 표준편차`);
+  $("signalChart").setAttribute("aria-label", `최근 ${diagnosticWindow() / 1000}초 ${source}와 평균 및 표준편차`);
   $("histogram").setAttribute("aria-label", `${source} 표본 분포`);
   for (const label of $("diagnostics").querySelectorAll("[data-diagnostic-stat]")) {
     const name = label.dataset.diagnosticStat;
@@ -1472,9 +1576,12 @@ function renderDiagnostics() {
       : `최근 ${series.length}개 · 관찰 ${fmt(s.observedHz, 1)} Hz · 보정 중·중복·오래된 샘플 제외`;
   drawSignal(series, s, now, adcView, pairs.map((p) => ({ time: p.time, value: p.before })));
   drawHistogram(series, s, adcView);
+  renderLiveImpact(now);
 }
 $("diagnosticAdc").onchange = renderDiagnostics;
 $("diagnosticAdcCompare").onchange = renderDiagnostics;
+$("diagnosticWindow").onchange = renderDiagnostics;
+$("impactScope").onchange = renderDiagnostics;
 function renderMeasurement() {
   const now = performance.now();
   measure.tick(now);
@@ -1553,6 +1660,7 @@ $("cancelMeasure").onclick = () => {
 };
 $("clearStats").onclick = () => {
   telemetry.clear();
+  adcComparison = [];
   renderDiagnostics();
 };
 window.addEventListener("resize", () => renderDiagnostics());

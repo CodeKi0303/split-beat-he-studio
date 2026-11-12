@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Split-Beat HE Studio · 키보드 설정</title>
-    <link rel="stylesheet" href="style.css?v=studio-default-layout1" />
-    <link rel="stylesheet" href="rhythm.css?v=studio-rhythm1" />
+    <link rel="stylesheet" href="style.css?v=studio-sensor-lab1" />
+    <link rel="stylesheet" href="rhythm.css?v=studio-rhythm-practice2" />
     <link rel="stylesheet" href="binding-picker.css?v=studio-chords1" />
     <link rel="stylesheet" href="rt-setting-help.css?v=studio-rthelp1" />
   </head>
@@ -34,7 +34,7 @@
           <span>◎</span> 캘리브레이션
         </button>
         <button class="nav" data-tab="diagnostics" aria-selected="false">
-          <span>⌁</span> 센서 진단
+          <span>⌁</span> 센서 진단/설정
         </button>
         <button class="nav" data-tab="rhythm" aria-selected="false">
           <span>♫</span> 리듬 · RT 측정
@@ -332,23 +332,6 @@
                 >
               </div>
               <p id="bottomDeadzoneCompatibility" class="muted" hidden></p>
-              <details>
-                <summary>센서 노이즈 설정</summary>
-                <label
-                  >이 범위 내의 작은 센서 변화를 무시 (ADC 카운트)<input
-                    id="noise"
-                    type="number"
-                    min="0"
-                    max="100"
-                    step="1"
-                    value="5"
-                    required
-                /></label>
-                <p>
-                  원시 ADC 0–100 카운트. 거리 설정과 별개로, 응답과 떨림 억제의
-                  균형을 조절합니다.
-                </p>
-              </details>
               <details class="inline-help">
                 <summary>설정 도움말</summary>
                 <dl class="setting-help">
@@ -483,11 +466,20 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">04 / SENSOR LAB</p>
-            <h2>떨림과 키 간 간섭</h2>
+            <h2>센서 진단/설정</h2>
           </div>
           <button id="clearStats" class="secondary">통계 초기화</button>
         </div>
-        <fieldset id="adcTuning" hidden>
+        <div class="sensor-settings-grid">
+        <fieldset id="noiseSettings" class="sensor-settings-card hall-only">
+          <legend>센서 노이즈</legend>
+          <label>적용 범위<select id="noiseScope"><option value="selected">선택한 키</option><option value="left">왼쪽 Hall 전체</option><option value="right">오른쪽 Hall 전체</option><option value="all">모든 Hall 키</option></select></label>
+          <label>노이즈 데드밴드 <span class="sensor-help" tabindex="0" role="img" aria-label="센서 데드밴드 도움말" title="입력 판정에 반영할 작은 ADC 변화의 기준입니다. 큰 값은 작은 움직임도 무시할 수 있으며, ADC 그래프의 흔들림 자체가 줄어드는 필터는 아닙니다. 작동점·RT·상하단 데드존과 별개입니다.">ⓘ</span><span class="sensor-number"><input id="noise" type="number" min="0" max="100" step="1" value="5" required /> ADC</span></label>
+          <p id="noiseApplied" class="muted">키보드를 연결하세요.</p>
+          <button id="applyNoise" type="button" class="secondary" disabled>노이즈 설정 적용</button>
+          <small>적용은 RAM에 반영됩니다. 유지하려면 ‘키보드에 저장’을 누르세요.</small>
+        </fieldset>
+        <fieldset id="adcTuning" class="sensor-settings-card" hidden>
           <legend>ADC 설정</legend>
           <label>스캔레이트
             <select id="adcScanRate"><option value="8000">8 kHz</option><option value="16000">16 kHz</option><option value="32000">32 kHz</option><option value="64000">64 kHz</option><option value="96000">96 kHz</option></select>
@@ -496,18 +488,20 @@
             <select id="adcWindow"><option value="1">Raw</option><option value="2">2</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select>
           </label>
           <button id="applyAdcTuning" type="button" class="secondary">좌우에 적용</button>
-          <p>설정은 키 출력을 끈 뒤 좌우에 함께 적용합니다. Raw는 스캔 간 평균을 끕니다.</p>
+          <p class="muted">적용 시 키 출력을 끕니다. Raw는 스캔 간 이동평균을 끄며, ADC 2회 평균은 유지됩니다.</p>
+          <small>ADC 설정은 현재 전원에서만 유지됩니다. 전원을 다시 켜면 펌웨어 기본값으로 돌아갑니다.</small>
           <p id="adcTuningResult" role="status"></p>
           <button id="readRightAdc" type="button" class="secondary" hidden>오른쪽 적용값 확인</button>
-          <div class="table-scroll">
+          <details><summary>키별 적용값 확인</summary><div class="table-scroll">
             <table aria-label="Hall 키별 적용된 이동평균">
               <thead><tr><th scope="col">Hall 키 위치</th><th scope="col">왼쪽</th><th scope="col">오른쪽</th></tr></thead>
               <tbody id="adcWindowsByKey"></tbody>
             </table>
-          </div>
+          </div></details>
         </fieldset>
+        </div>
         <div class="hall-only">
-          <p>최근 10초 · 인식 이동량은 상단 데드존에서 0 mm, 하단 데드존에서 총 스트로크로 표시합니다. 작은 센서 흔들림은 ADC 보고값 보기에서 확인하세요.</p>
+          <div class="sensor-view-toolbar"><h3>실시간 센서값</h3><label>관찰 구간<select id="diagnosticWindow"><option value="10000">최근 10초</option><option value="30000">최근 30초</option><option value="60000">최근 60초</option></select></label></div>
           <label><input id="diagnosticAdc" type="checkbox" /> ADC 보고값 보기</label>
           <label id="adcCompareOption" hidden><input id="diagnosticAdcCompare" type="checkbox" /> 이동평균 전·후 겹쳐 보기</label>
           <small id="adcCompareLegend" hidden>주황 · 평균 전　하늘색 · 평균 후</small>
@@ -542,8 +536,15 @@
             </div>
           </div>
           <p id="sampleInfo" class="muted">샘플 대기</p>
+          <div class="sensor-impact-live">
+            <div class="sensor-view-toolbar"><h3>다른 키의 동시 변화</h3><label>비교 범위<select id="impactScope"><option value="same">같은 쪽</option><option value="other">반대쪽</option><option value="all">양쪽 전체</option></select></label></div>
+            <p class="muted">각 키의 관찰 구간 첫 값을 0으로 맞춘 ADC 변화입니다. 아래 이름을 눌러 그래프를 켜고 끌 수 있습니다.</p>
+            <canvas id="impactChart" role="img" aria-label="다른 Hall 키의 시간별 ADC 변화"></canvas>
+            <div id="impactLegend" class="sensor-impact-legend"></div>
+            <p id="impactLiveSummary" class="muted">샘플 대기</p>
+          </div>
           <div class="interference">
-            <h3>다른 키에 미치는 영향</h3>
+            <h3>키 간 영향 비교 측정</h3>
             <p>
               기준 수집 후 선택한 키만 끝까지 누르고 측정하세요.
             </p>
@@ -577,11 +578,11 @@
           </div>
         </div>
         <div class="non-hall-message" hidden>
-          센서 진단을 보려면 위 그림에서 Hall 키를 선택하세요.
+          센서 진단과 노이즈 설정을 보려면 위 그림에서 Hall 키를 선택하세요.
         </div>
         <details>
           <summary>측정 안내 · 통신 상태</summary>
-          <p>브라우저가 받은 샘플을 집계합니다. 전체 ADC 샘플이나 전 대역 전기 노이즈 측정은 아닙니다. 키 간 변화는 자성·전원·기구 영향 중 원인을 구분하지 않습니다.</p>
+          <p>브라우저가 받은 샘플을 집계합니다. 전체 ADC 샘플이나 전 대역 전기 노이즈 측정은 아닙니다. 키 간 동시 변화는 원인이나 인과관계를 확정하지 않습니다. 인식 이동량은 상단 데드존에서 0 mm, 하단 데드존에서 총 스트로크로 표시합니다.</p>
           <p id="linkStatus">연결 대기</p>
         </details>
       </section>
@@ -619,7 +620,32 @@
           <span id="rhythmGridInfo" class="muted"></span>
           <div><button id="rhythmStart" disabled>측정 시작 · 키 출력 끄기</button> <button id="rhythmStop" class="secondary" disabled>정지</button></div>
         </div>
-        <p id="rhythmState" role="status" aria-live="polite">보정된 Hall 키를 선택하세요. 네 박자 준비 후 시작합니다.</p>
+        <p id="rhythmState" role="status" aria-live="polite">보정된 Hall 키를 선택하세요. 선택한 분할 박자의 메트로놈으로 한 마디 준비 후 시작합니다.</p>
+        <section id="rhythmPractice" class="rhythm-practice" aria-label="단일 키 리듬 연습" data-phase="idle">
+          <div class="rhythm-practice-heading"><strong>단일 키 노트 연습</strong><span id="rhythmPracticePhase" class="pill">미리 보기</span></div>
+          <div class="rhythm-practice-grid">
+            <div class="rhythm-note-panel">
+              <div class="rhythm-lane-heading"><span>선택한 키</span><strong id="rhythmLaneKey">Hall 키 선택</strong></div>
+              <canvas id="rhythmLane" role="img" aria-label="선택한 Hall 키의 단일 노트 레인"></canvas>
+              <p id="rhythmLaneState">노트가 기준선에 닿을 때 누르세요</p>
+              <div class="rhythm-note-legend"><span>━ 눌림</span><span>▱ 해제</span><span>꼬리 구간 유지</span></div>
+            </div>
+            <div id="rhythmTimingCard" class="rhythm-timing-card" data-timing="waiting">
+              <div class="rhythm-timing-heading"><strong>EARLY / LATE</strong><span>보정 목표 기준</span></div>
+              <div class="rhythm-timing-result"><span id="rhythmTimingVerdict" role="status" aria-live="polite">입력 대기</span><strong id="rhythmTimingValue">—</strong></div>
+              <div id="rhythmTimingMeter" class="rhythm-timing-meter" role="img" aria-label="기준 0 ms를 중심으로 빠르거나 늦은 입력 표시">
+                <div class="rhythm-meter-labels"><span>EARLY <small>빠름</small></span><span>LATE <small>늦음</small></span></div>
+                <div class="rhythm-meter-track"><i class="rhythm-meter-zero" aria-hidden="true"></i><i id="rhythmTimingRange" class="rhythm-meter-range" hidden aria-hidden="true"></i><i id="rhythmTimingMarker" class="rhythm-meter-marker" hidden aria-hidden="true"></i></div>
+                <div class="rhythm-meter-ticks"><span>−150 ms</span><span>0</span><span>+150 ms</span></div>
+              </div>
+              <p id="rhythmTimingDetail" class="rhythm-timing-detail">관측한 눌림과 해제의 타이밍이 여기에 표시됩니다.</p>
+              <div class="rhythm-history-heading"><span>최근 타이밍</span><span class="rhythm-history-legend"><b>▼ 눌림</b><b>○ 해제</b><span>선: 관측 구간</span></span></div>
+              <canvas id="rhythmTimingHistory" role="img" aria-label="최근 눌림과 해제 타이밍 기록"></canvas>
+              <p id="rhythmTimingCounts" class="rhythm-timing-counts">대응 0 · 미관측 0 · 목표 밖 0</p>
+            </div>
+          </div>
+          <p class="rhythm-practice-caption">브라우저가 관측한 센서 전환과 소리 목표의 차이입니다. 게임 판정이나 USB 입력 지연을 측정한 값은 아닙니다.</p>
+        </section>
         <div class="rhythm-chart-frame">
           <div class="rhythm-chart-heading"><strong>인식 이동량과 판정</strong><span id="rhythmLive">—</span></div>
           <canvas id="rhythmChart" role="img" aria-label="시간에 따른 데드존 적용 인식 이동량, 소리 목표와 실제 눌림 해제 판정"></canvas>
@@ -681,6 +707,6 @@
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-default-layout1"></script>
+    <script type="module" src="app.mjs?v=studio-sensor-lab1"></script>
   </body>
 </html>

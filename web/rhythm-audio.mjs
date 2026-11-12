@@ -52,7 +52,8 @@ export function validateAudioSchedule(schedule, mode = "tap") {
         offsetMs > MAX_DURATION_MS || onsetMs > MAX_DURATION_MS)
       throw Error("Notes need increasing onset/off times within 120 seconds");
     const toneOffMs = kind === "hold" ? offsetMs : Math.min(offsetMs, onsetMs + 35);
-    return { id, onsetMs, offsetMs, toneOffMs, type: kind, accent: Boolean(event.accent) };
+    return { id, onsetMs, offsetMs, toneOffMs, type: kind,
+      accent: Boolean(event.accent), beatAccent: Boolean(event.beatAccent) };
   }).sort((a, b) => a.onsetMs - b.onsetMs);
   // Protect audio resource use even if a caller supplies overlapping long notes.
   const changes = notes.flatMap((note) => [[note.onsetMs, 1], [note.toneOffMs, -1]])
@@ -213,7 +214,7 @@ export class RhythmAudio {
       gain.gain.exponentialRampToValueAtTime(.001, off);
     }
     const partials = sustained ? [[1, .7], [2, .2], [3, .08]] : [[1, 1]];
-    const base = sustained ? 261.625565 : note.accent ? 1320 : 880;
+    const base = sustained ? 261.625565 : note.accent ? 1320 : note.beatAccent ? 1100 : 880;
     let remaining = partials.length;
     for (const [harmonic, amplitude] of partials) {
       const oscillator = context.createOscillator();

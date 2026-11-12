@@ -58,7 +58,7 @@ let browser;
       buffer: Buffer.from(JSON.stringify(value)),
     });
   };
-  await page.goto("http://127.0.0.1:8877/");
+  await page.goto(process.env.C77_WEB_URL || "http://127.0.0.1:8877/");
   const demoInfo = await page.evaluate(async () => {
     const { DemoTransport } = await import("./demo.mjs");
     const { decodeInfo } = await import("./protocol.mjs");

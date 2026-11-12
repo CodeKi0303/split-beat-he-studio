@@ -41,20 +41,27 @@ export function validateSettings(value = {}) {
 
 export function makeSchedule(settings = {}) {
   const s = validateSettings(settings), quarterMs = 60000 / s.bpm;
+  const stepsPerBeat = s.division / 4;
   const stepMs = quarterMs * 4 / s.division, countInMs = quarterMs * 4;
   const totalSteps = s.bars * s.division, cues = [], targets = [];
-  for (let beat = 0; beat < 4; beat++) cues.push({ id: `count-${beat}`, type: "count-in",
-    onMs: beat * quarterMs, offMs: beat * quarterMs + Math.min(45, quarterMs / 3), accent: beat === 0 });
+  // Prepare for one complete 4/4 bar at the selected subdivision. Reuse the
+  // performance step clock so the last count-in click leads into note-0 with
+  // exactly one step, including triplets. Count-in cues never create targets.
+  for (let step = 0; step < s.division; step++) cues.push({ id: `count-${step}`, type: "count-in",
+    onMs: step * stepMs, offMs: step * stepMs + Math.min(45, stepMs / 3),
+    accent: step === 0, beatAccent: step % stepsPerBeat === 0,
+    beat: Math.floor(step / stepsPerBeat), step });
   const correction = s.delayMode === "input" ? -s.delayMs : s.delayMs;
   for (let step = 0, index = 0; step < totalSteps; step += s.mode === "hold" ? s.holdSteps + s.gapSteps : 1, index++) {
     const onMs = countInMs + step * stepMs;
     const length = s.mode === "hold" ? Math.min(s.holdSteps, totalSteps - step) : s.tapDuty;
     const offMs = onMs + length * stepMs, id = `note-${index}`;
-    cues.push({ id, type: s.mode, onMs, offMs, accent: step % s.division === 0, index, step });
+    cues.push({ id, type: s.mode, onMs, offMs, accent: step % s.division === 0,
+      beatAccent: step % stepsPerBeat === 0, beat: Math.floor(step / stepsPerBeat) % 4, index, step });
     targets.push({ id: `${id}-press`, noteId: id, type: "press", soundMs: onMs, targetMs: onMs + correction });
     targets.push({ id: `${id}-release`, noteId: id, type: "release", soundMs: offMs, targetMs: offMs + correction });
   }
-  return { settings: s, quarterMs, stepMs, countInMs,
+  return { settings: s, quarterMs, stepsPerBeat, stepMs, countInMs,
     durationMs: countInMs + totalSteps * stepMs + Math.max(500, s.delayMs), cues, targets };
 }
 
@@ -140,26 +147,40 @@ const edgeFrom = (a, b, source) => ({
   depthNormalized: (a.travel + b.travel) / 2, source, segment: b.segment,
 });
 
-function edgeMatches(targets, edges, windowMs, samples, maxGapMs, totalTravelMm) {
+/** Timing-only matching for both live feedback and final analysis. Raw capture
+ * retains preparation edges, but they are not extra performance judgments.
+ * Keep the first target's early window, including intentional input offsets.
+ */
+export function matchTimingEdges(targets, edges, windowMs) {
+  const scoringStartMs = targets.length ? Math.min(...targets.map((t) => t.targetMs)) - windowMs : Infinity;
+  const scoringEdges = edges.filter((edge) => edge.timeMs >= scoringStartMs);
   const used = new Set();
   const matches = targets.map((target) => {
-    const choices = edges.filter((edge) => edge.type === target.type && !used.has(edge.id)
+    const choices = scoringEdges.filter((edge) => edge.type === target.type && !used.has(edge.id)
       && Math.abs(edge.timeMs - target.targetMs) <= windowMs)
       .sort((a, b) => Math.abs(a.timeMs - target.targetMs) - Math.abs(b.timeMs - target.targetMs));
     const edge = choices[0] ?? null;
     if (edge) used.add(edge.id);
-    const depth = depthAt(samples, target.targetMs, maxGapMs, totalTravelMm);
-    const pending = !edge && (samples.at(-1)?.timeMs ?? -Infinity) < target.targetMs + windowMs;
-    return { ...target, edge, matched: Boolean(edge), depthAtTarget: depth, pending,
+    return { ...target, edge, matched: Boolean(edge),
       errorMs: edge ? edge.timeMs - target.targetMs : null,
       correctedErrorMs: edge ? edge.timeMs - target.targetMs : null,
       rawSoundErrorMs: edge ? edge.timeMs - target.soundMs : null,
       errorRangeMs: edge ? [edge.earliestMs - target.targetMs, edge.latestMs - target.targetMs] : null,
-      timing: !edge ? (pending ? "pending" : depth ? "no_observed_edge" : "not_observed")
+      timing: !edge ? "not_observed"
         : edge.earliestMs <= target.targetMs && edge.latestMs >= target.targetMs ? "within_observation_window"
           : edge.timeMs < target.targetMs ? "early" : "late" };
   });
-  return { matches, extraEdges: edges.filter((edge) => !used.has(edge.id)) };
+  return { matches, extraEdges: scoringEdges.filter((edge) => !used.has(edge.id)) };
+}
+
+function edgeMatches(targets, edges, windowMs, samples, maxGapMs, totalTravelMm) {
+  const result = matchTimingEdges(targets, edges, windowMs);
+  return { ...result, matches: result.matches.map((match) => {
+    const depth = depthAt(samples, match.targetMs, maxGapMs, totalTravelMm);
+    const pending = !match.edge && (samples.at(-1)?.timeMs ?? -Infinity) < match.targetMs + windowMs;
+    return { ...match, depthAtTarget: depth, pending,
+      timing: match.edge ? match.timing : pending ? "pending" : depth ? "no_observed_edge" : "not_observed" };
+  }) };
 }
 
 function errorStats(matches, type) {

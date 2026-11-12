@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { RhythmAudio, audioPerformanceTime, validateAudioSchedule } from "../web/rhythm-audio.mjs";
+import { makeSchedule } from "../web/rhythm-analysis.mjs";
 
 class Events {
   constructor() { this.listeners = new Map(); this.hidden = false; }
@@ -74,6 +75,35 @@ function fixture(extra = {}) {
     Array.from({ length: 9 }, (_, id) => ({ id, onMs: 0, offMs: 1000, type: "hold" })),
     Array.from({ length: 1025 }, (_, id) => ({ id, onMs: id, offMs: id + .1 })),
   ]) assert.throws(() => validateAudioSchedule(notes));
+}
+
+// Selected-subdivision preparation and the first performed note share the same
+// audio clock, with downbeat/quarter/subdivision accents and no boundary pause.
+for (const division of [8, 12, 16]) for (const mode of ["tap", "hold"]) {
+  const f = fixture(), events = [];
+  const schedule = makeSchedule({ bpm: 120, division, bars: 1, mode });
+  const meta = await f.audio.start(schedule, { mode, onEvent: event => events.push(event) });
+  for (let i = 0; i < 90; i++) f.tick();
+  const preparation = events.filter((event) => event.type === "count-in");
+  assert.equal(preparation.length, division);
+  assert.ok(preparation.every((event) => event.kind === "on"));
+  const firstNote = events.find((event) => event.id === "note-0" && event.kind === "on");
+  assert.ok(firstNote);
+  for (let i = 0; i < preparation.length; i++) {
+    const event = preparation[i], next = preparation[i + 1] ?? firstNote;
+    assert.equal(event.relativeMs, i * schedule.stepMs);
+    assert.ok(Math.abs(next.audioTime - event.audioTime - schedule.stepMs / 1000) < 1e-8);
+    assert.ok(Math.abs(f.context.oscillators[i].starts[0] - (meta.originAudioTime + event.relativeMs / 1000)) < 1e-8);
+  }
+  assert.equal(f.context.oscillators[0].frequency.calls[0][1], 1320);
+  assert.equal(f.context.oscillators[1].frequency.calls[0][1], 880);
+  assert.equal(f.context.oscillators[schedule.stepsPerBeat].frequency.calls[0][1], 1100);
+  assert.equal(firstNote.relativeMs, 2000);
+  f.audio.stop();
+}
+for (const bpm of [20, 300]) for (const division of [4, 32]) for (const mode of ["tap", "hold"]) {
+  const schedule = makeSchedule({ bpm, division, mode, bars: bpm === 20 ? 8 : 16 });
+  assert.equal(validateAudioSchedule(schedule, mode).length, schedule.cues.length);
 }
 
 // Timer fills lookahead; sound starts at audio-clock times, not timer callbacks.
