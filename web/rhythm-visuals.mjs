@@ -2,7 +2,32 @@
  * No keyboard events, game grades, or hardware timestamps are synthesized here.
  */
 export const TIMING_RANGE_MS = 150;
+export const NOTE_SPEED_STORAGE_KEY = "split-studio-rhythm-note-speed-v1";
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
+// Presentation-only preference. Never add it to a schedule or audio settings.
+export function normalizeNoteSpeed(value) {
+  if (!["number", "string"].includes(typeof value) || typeof value === "string" && !value.trim()) return 1;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= .5 && number <= 4 ? Math.round(number * 10) / 10 : 1;
+}
+export function readNoteSpeed(storage) {
+  try { return normalizeNoteSpeed((storage ?? globalThis.localStorage)?.getItem(NOTE_SPEED_STORAGE_KEY)); }
+  catch { return 1; }
+}
+export function saveNoteSpeed(value, storage) {
+  try { (storage ?? globalThis.localStorage)?.setItem(NOTE_SPEED_STORAGE_KEY, normalizeNoteSpeed(value).toFixed(1)); }
+  catch { /* Private/storage-restricted browsers can still adjust this session. */ }
+}
+export const noteLookaheadMs = (speed = 1) => 1800 / normalizeNoteSpeed(speed);
+export function laneGeometry({ noteSpeed = 1, top, line, elapsedMs = 0, previewTargetMs = null }) {
+  const lookaheadMs = noteLookaheadMs(noteSpeed);
+  // Preview the first head halfway down at every speed, including 4×.
+  const nowMs = Number.isFinite(previewTargetMs) ? previewTargetMs - lookaheadMs / 2 : elapsedMs;
+  const scale = (line - top) / lookaheadMs;
+  // Keep signed coordinates: past heads continue below the line while hold
+  // release tails approach it. Canvas clipping owns viewport boundaries.
+  return { lookaheadMs, nowMs, y: (timeMs) => line - (timeMs - nowMs) * scale };
+}
 export const formatTiming = (value) => Number.isFinite(value)
   ? `${value > 0 ? "+" : value < 0 ? "−" : ""}${Math.abs(value).toFixed(1)} ms` : "—";
 export const timingPosition = (value) => 50 + clamp(value, -TIMING_RANGE_MS, TIMING_RANGE_MS) / TIMING_RANGE_MS * 50;
@@ -77,7 +102,7 @@ export class RhythmPracticeView {
     this.get = (id) => this.root.getElementById(id);
   }
   render({ schedule, matches = [], extraEdges = [], samples = [], elapsedMs = 0,
-    active = false, starting = false, hasResult = false, label = "Hall 키 선택", demo = false }) {
+    active = false, starting = false, hasResult = false, label = "Hall 키 선택", demo = false, noteSpeed = 1 }) {
     if (!this.get("rhythmPractice")) return;
     const last = samples.at(-1), preparing = active && (starting || elapsedMs < practiceInputStart(schedule));
     const countingIn = active && (starting || elapsedMs < (schedule?.countInMs ?? 0));
@@ -109,16 +134,14 @@ export class RhythmPracticeView {
     this.get("rhythmTimingMeter").setAttribute("aria-label", preparing ? "준비 박자, 입력 판정 대기" : `${description.verdict}, ${description.value}, ${description.detail}`);
     this.get("rhythmTimingCounts").textContent = `대응 ${entries.filter((entry) => entry.edge && Number.isFinite(entry.errorMs)).length} · 미관측 ${entries.filter((entry) => entry.state === "unobserved").length} · 목표 밖 ${entries.filter((entry) => entry.state === "extra").length}`;
     this.drawHistory(entries.filter((entry) => Number.isFinite(entry.errorMs)).slice(-24));
-    this.drawLane({ schedule, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed: Boolean(last?.pressed), label });
+    this.drawLane({ schedule, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed: Boolean(last?.pressed), label, noteSpeed });
   }
-  drawLane({ schedule, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed, label }) {
+  drawLane({ schedule, elapsedMs, active, starting, hasResult, preparing, countingIn, pressed, label, noteSpeed = 1 }) {
     const surface = canvasContext(this.get("rhythmLane"));
     if (!surface) return;
     const { c, w, h } = surface, L = w * .22, R = w * .78, top = 12, line = h - 58;
-    const lookahead = 1800, scale = (line - top) / lookahead;
-    // A stationary preview shows the first note approaching the same line.
-    const now = !active && !hasResult ? (schedule?.targets[0]?.targetMs ?? 2000) - 1000 : elapsedMs;
-    const y = (time) => line - (time - now) * scale;
+    const { lookaheadMs: lookahead, nowMs: now, y } = laneGeometry({ noteSpeed, top, line, elapsedMs,
+      previewTargetMs: !active && !hasResult ? schedule?.targets[0]?.targetMs ?? 2000 : null });
     c.fillStyle = "#0c1018"; c.fillRect(L, top, R - L, h - top - 12);
     const gradient = c.createLinearGradient(0, top, 0, line);
     gradient.addColorStop(0, "#72d4df03"); gradient.addColorStop(1, pressed && active && !preparing ? "#b4ed7826" : "#72d4df10");
@@ -163,7 +186,7 @@ export class RhythmPracticeView {
     } else if (countingIn) {
       c.fillStyle = "#aab6c5"; c.font = "10px Segoe UI"; c.fillText("첫 노트 · 보정 목표", w / 2, top + 18);
     }
-    this.get("rhythmLane").setAttribute("aria-label", `${label} 단일 노트 레인. 초록 실선은 눌림, 주황 빈 선은 해제, 연결된 꼬리는 유지 구간. ${preparing ? "준비 중" : active ? pressed ? "현재 눌림" : "현재 해제" : hasResult ? "측정 기록" : "정지 미리 보기"}.`);
+    this.get("rhythmLane").setAttribute("aria-label", `${label} 단일 노트 레인. 노트 속도 ${normalizeNoteSpeed(noteSpeed).toFixed(1)}배, 등장부터 기준선까지 ${(lookahead / 1000).toFixed(3)}초. 초록 실선은 눌림, 주황 빈 선은 해제, 연결된 꼬리는 유지 구간. ${preparing ? "준비 중" : active ? pressed ? "현재 눌림" : "현재 해제" : hasResult ? "측정 기록" : "정지 미리 보기"}.`);
   }
   drawHistory(entries) {
     const surface = canvasContext(this.get("rhythmTimingHistory"));

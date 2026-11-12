@@ -6,7 +6,7 @@
     <meta name="color-scheme" content="dark" />
     <title>Split-Beat HE Studio · 키보드 설정</title>
     <link rel="stylesheet" href="style.css?v=studio-sensor-lab1" />
-    <link rel="stylesheet" href="rhythm.css?v=studio-rhythm-practice2" />
+    <link rel="stylesheet" href="rhythm.css?v=studio-note-speed1" />
     <link rel="stylesheet" href="binding-picker.css?v=studio-chords1" />
     <link rel="stylesheet" href="rt-setting-help.css?v=studio-rthelp1" />
   </head>
@@ -623,6 +623,13 @@
         <p id="rhythmState" role="status" aria-live="polite">보정된 Hall 키를 선택하세요. 선택한 분할 박자의 메트로놈으로 한 마디 준비 후 시작합니다.</p>
         <section id="rhythmPractice" class="rhythm-practice" aria-label="단일 키 리듬 연습" data-phase="idle">
           <div class="rhythm-practice-heading"><strong>단일 키 노트 연습</strong><span id="rhythmPracticePhase" class="pill">미리 보기</span></div>
+          <div class="rhythm-speed-controls">
+            <label for="rhythmNoteSpeed">노트 속도</label>
+            <input id="rhythmNoteSpeed" type="range" min="0.5" max="4" step="0.1" value="1" aria-describedby="rhythmNoteSpeedDuration rhythmNoteSpeedHelp" />
+            <output id="rhythmNoteSpeedValue" for="rhythmNoteSpeed">1.0×</output>
+            <span id="rhythmNoteSpeedDuration">등장 → 기준선 1.800초</span>
+            <small id="rhythmNoteSpeedHelp">노트 이동만 조절 · BPM과 판정 시간은 그대로 · 이 브라우저에 저장</small>
+          </div>
           <div class="rhythm-practice-grid">
             <div class="rhythm-note-panel">
               <div class="rhythm-lane-heading"><span>선택한 키</span><strong id="rhythmLaneKey">Hall 키 선택</strong></div>
@@ -707,6 +714,6 @@
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-sensor-lab1"></script>
+    <script type="module" src="app.mjs?v=studio-note-speed1"></script>
   </body>
 </html>

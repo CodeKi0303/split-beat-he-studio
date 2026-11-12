@@ -1,7 +1,8 @@
 import { RhythmAudio } from "./rhythm-audio.mjs?v=studio-owlab1";
 import { RhythmCapture, makeSchedule, matchTimingEdges } from "./rhythm-analysis.mjs?v=studio-rhythm-practice2";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
-import { RhythmPracticeView, practiceInputStart } from "./rhythm-visuals.mjs?v=studio-rhythm-practice2";
+import { RhythmPracticeView, practiceInputStart, normalizeNoteSpeed, readNoteSpeed, saveNoteSpeed,
+  noteLookaheadMs } from "./rhythm-visuals.mjs?v=studio-note-speed1";
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 1) => Number.isFinite(v) ? v.toFixed(n) : "—";
@@ -23,6 +24,7 @@ export class RhythmLab {
     this.events = [];
     this.frame = null;
     this.viewEnd = 8000;
+    this.noteSpeed = readNoteSpeed();
     $("rhythmStart").onclick = () => this.start();
     $("rhythmStop").onclick = () => this.stop("사용자가 측정을 멈췄습니다.");
     $("rhythmExport").onclick = () => this.export();
@@ -50,6 +52,9 @@ export class RhythmLab {
       }
     };
     for (const id of controlIds) $(id).addEventListener("change", () => this.settingsChanged());
+    // This control stays available during capture and never rebuilds timing.
+    $("rhythmNoteSpeed").oninput = () => this.noteSpeedChanged($("rhythmNoteSpeed").value);
+    this.noteSpeedChanged(this.noteSpeed, false);
     $("rhythmScrub").oninput = () => {
       this.viewEnd = Number($("rhythmScrub").value);
       this.draw();
@@ -60,6 +65,17 @@ export class RhythmLab {
       if (document.hidden && this.active) this.stop("화면이 숨겨져 측정을 중단했습니다.");
     });
     this.settingsChanged();
+  }
+  noteSpeedChanged(value, persist = true) {
+    this.noteSpeed = normalizeNoteSpeed(value);
+    const multiplier = `${this.noteSpeed.toFixed(1)}×`;
+    const duration = `${(noteLookaheadMs(this.noteSpeed) / 1000).toFixed(3)}초`;
+    $("rhythmNoteSpeed").value = this.noteSpeed;
+    $("rhythmNoteSpeed").setAttribute("aria-valuetext", `${multiplier}, 등장부터 기준선까지 ${duration}`);
+    $("rhythmNoteSpeedValue").textContent = multiplier;
+    $("rhythmNoteSpeedDuration").textContent = `등장 → 기준선 ${duration}`;
+    if (persist) saveNoteSpeed(this.noteSpeed);
+    this.drawPractice();
   }
   settings() {
     return { bpm: Number($("rhythmBpm").value), division: Number($("rhythmDivision").value),
@@ -284,7 +300,7 @@ export class RhythmLab {
     this.practice.render({ schedule, matches, extraEdges, samples,
       elapsedMs: elapsedMs ?? (this.active ? this.origin === null ? 0 : performance.now() - this.origin
         : Math.min(samples.at(-1)?.timeMs ?? 0, this.viewEnd)),
-      active: this.active, starting: this.starting, hasResult: Boolean(this.result),
+      active: this.active, starting: this.starting, hasResult: Boolean(this.result), noteSpeed: this.noteSpeed,
       label: recorded ? this.recordContext.label : context.selected < 14 ? context.label : "Hall 키를 선택하세요",
       demo: recorded ? this.recordContext.demo : Boolean(context.info?.demo) });
   }

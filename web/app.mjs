@@ -1,6 +1,6 @@
 import { BatchCalibration } from "./batch-calibration.mjs?v=studio-owlab1";
 import { fetchStudioRelease, firmwareVersionNumber } from "./studio-release.mjs";
-import { RhythmLab } from "./rhythm-ui.mjs?v=studio-rhythm-practice2";
+import { RhythmLab } from "./rhythm-ui.mjs?v=studio-note-speed1";
 import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-default-layout1";
 import { mountRTSettingHelp } from "./rt-setting-help.mjs?v=studio-recognized-travel1";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
