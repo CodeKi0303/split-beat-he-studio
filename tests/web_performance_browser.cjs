@@ -217,7 +217,7 @@ DemoTransport.prototype.command = function(op, payload) {
   for (const id of [0, 7]) {
     await page.locator(`#key-${id}`).click();
     await page.waitForFunction(() => document.querySelector("#mean").textContent === "2.5500");
-    assert.match(await page.locator("#diagnosticSignalLabel").textContent(), /키 판정에 쓰는 이동량/);
+    assert.match(await page.locator("#diagnosticSignalLabel").textContent(), /인식 이동량 \(데드존 적용\)/);
   }
   await page.locator("#diagnosticAdc").check();
   await page.waitForFunction(() => document.querySelector("#mean").textContent === "1234.00");

@@ -1,8 +1,9 @@
 import { BatchCalibration } from "./batch-calibration.mjs?v=studio-owlab1";
 import { fetchStudioRelease, firmwareVersionNumber } from "./studio-release.mjs";
-import { RhythmLab } from "./rhythm-ui.mjs?v=studio-retrigger1";
+import { RhythmLab } from "./rhythm-ui.mjs?v=studio-recognized-travel1";
 import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-retrigger1";
-import { mountRTSettingHelp } from "./rt-setting-help.mjs?v=studio-rthelp1";
+import { mountRTSettingHelp } from "./rt-setting-help.mjs?v=studio-recognized-travel1";
+import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
 import { applyCalibration } from "./apply-calibration.mjs?v=studio-owlab1";
 import {
   proposePerformanceSettings,
@@ -448,10 +449,10 @@ function renderTravel() {
   const s = latest[INPUTS[selected].side],
     idx = selected % 7,
     k = profile?.keys[selected];
-  // STATUS travel is the firmware's filtered, curve-corrected RT input.
-  // Keep the raw ADC readout/diagnostics separate from the live distance.
+  // Apply display endpoints for older STATUS implementations too. Preserve
+  // the received samples and the independent raw ADC diagnostics.
   const mm = s?.fresh && (k?.flags & 4)
-    ? normalizedToMm(s.travel[idx], travelMm[selected])
+    ? recognizedTravelToMm(s.travel[idx], k, travelMm[selected])
     : null;
   $("liveTravel").textContent = mm === null ? "— mm" : `${fmt(mm)} mm`;
   $("liveRaw").textContent =
@@ -703,6 +704,7 @@ function clearTelemetry() {
   $("leftFresh").textContent = $("rightFresh").textContent = "연결 대기";
   $("linkStatus").textContent = "센서 데이터 없음";
   $("dirty").textContent = "장치 연결 대기";
+  renderTravel();
   renderMeasurement();
   renderDiagnostics();
   renderBatch();
@@ -790,7 +792,7 @@ function hallTravelLabel(id) {
   if (!status.fresh) return "신호 대기";
   const index = id % 7;
   if (!(profile?.keys[id]?.flags & 4)) return `ADC ${status.raw[index]}`;
-  return `${fmt(normalizedToMm(status.travel[index], travelMm[id]))} mm`;
+  return `${fmt(recognizedTravelToMm(status.travel[index], profile.keys[id], travelMm[id]))} mm`;
 }
 function renderPressedKeys(side) {
   const status = latest[side];
@@ -826,7 +828,7 @@ function renderStatus(side, s) {
     const id = side * 7 + i,
       b = $(`key-${id}`);
     b.querySelector(".raw").textContent = s.fresh ? s.raw[i] : "—";
-    b.querySelector(".bar").style.width = `${s.fresh ? s.travel[i] / 10 : 0}%`;
+    b.querySelector(".bar").style.width = `${s.fresh ? recognizedTravel(s.travel[i], profile?.keys[id]) / 10 : 0}%`;
   }
   renderPressedKeys(side);
   $("outputState").textContent = s.output_enabled ? "출력 켜짐" : "출력 꺼짐";
@@ -1345,8 +1347,8 @@ function drawSignal(series, stats, now, adcView, before = []) {
   const low = Math.min(stats.min, ...before.map((s) => s.value)),
     high = Math.max(stats.max, ...before.map((s) => s.value)),
     padding = Math.max(adcView ? 2 : 0.005, (high - low) * 0.12),
-    min = low - padding,
-    max = high + padding;
+    min = adcView ? low - padding : Math.max(0, low - padding),
+    max = adcView ? high + padding : Math.min(travelMm[selected], high + padding);
   const y = (v) => B - ((v - min) / (max - min)) * (B - T),
     x = (t) => L + ((t - (now - 10000)) / 10000) * (R - L);
   c.strokeStyle = "#293443";
@@ -1443,11 +1445,11 @@ function renderDiagnostics() {
   const pairs = compare ? adcComparison.filter((s) => s.key === selected && s.time >= now - 10000) : [];
   const series = compare ? pairs.map((s) => ({ time: s.time, value: s.after })) : samples.map((sample) => ({
     time: sample.time,
-    value: adcView ? sample.raw : normalizedToMm(sample.travel, travelMm[selected]),
+    value: adcView ? sample.raw : recognizedTravelToMm(sample.travel, profile.keys[selected], travelMm[selected]),
   }));
   const s = summarize(series, (sample) => sample.value);
   const unit = adcView ? "ADC" : "mm";
-  const source = compare ? "이동평균 전·후 ADC" : adcView ? "ADC 보고값" : "키 판정에 쓰는 이동량";
+  const source = compare ? "이동평균 전·후 ADC" : adcView ? "ADC 보고값" : "인식 이동량 (데드존 적용)";
   $("diagnosticSignalLabel").textContent = `${source} · 평균 · ±1σ`;
   $("signalChart").setAttribute("aria-label", `최근 10초 ${source}와 평균 및 표준편차`);
   $("histogram").setAttribute("aria-label", `${source} 표본 분포`);

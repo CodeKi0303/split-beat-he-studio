@@ -1,5 +1,6 @@
 import { RhythmAudio } from "./rhythm-audio.mjs?v=studio-owlab1";
-import { RhythmCapture, makeSchedule } from "./rhythm-analysis.mjs?v=studio-retrigger1";
+import { RhythmCapture, makeSchedule } from "./rhythm-analysis.mjs?v=studio-recognized-travel1";
+import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 1) => Number.isFinite(v) ? v.toFixed(n) : "—";
@@ -183,7 +184,7 @@ export class RhythmLab {
       $("rhythmState").textContent = left > 0 ? `준비 ${Math.max(1, Math.ceil(left / this.schedule.quarterMs))} · 모든 키에서 손을 떼세요`
         : `${this.recordContext.demo ? "데모 · " : ""}${this.schedule.settings.mode === "hold" ? "음이 이어지는 동안 유지 → 소리가 끊기면 해제" : "박자에 맞춰 누르고 놓으세요"} · ${fmt(elapsed / 1000, 0)} / ${fmt(this.schedule.durationMs / 1000, 0)}초`;
       const last = this.capture.samples.at(-1);
-      $("rhythmLive").textContent = last ? `${fmt(last.mm, 2)} mm · ${last.pressed ? "눌림" : "해제"}` : "샘플 대기";
+      $("rhythmLive").textContent = last ? `${fmt(last.recognizedMm, 2)} mm · ${last.pressed ? "눌림" : "해제"}` : "샘플 대기";
       $("rhythmEdges").textContent = `${this.capture.edges.filter((e) => e.type === "press").length} / ${this.capture.edges.filter((e) => e.type === "release").length}`;
       this.draw();
     }
@@ -232,7 +233,8 @@ export class RhythmLab {
     for (const match of s.matches) {
       const tr = document.createElement("tr");
       const fields = [`${fmt(match.targetMs / 1000, 2)} s`, match.type === "press" ? "눌림" : "해제",
-        signed(match.rawSoundErrorMs), signed(match.errorMs), `${fmt(match.depthAtTarget?.mm, 2)} mm`,
+        signed(match.rawSoundErrorMs), signed(match.errorMs), `${fmt(match.depthAtTarget
+          ? recognizedTravelToMm(match.depthAtTarget.normalized, this.result.keyConfig, this.recordContext.totalTravelMm) : null, 2)} mm`,
         match.errorRangeMs ? `${signed(match.errorRangeMs[0])} ~ ${signed(match.errorRangeMs[1])}` : "미관측"];
       for (const value of fields) { const td = document.createElement("td"); td.textContent = value; tr.append(td); }
       if (!match.edge) tr.classList.add("miss");
@@ -267,7 +269,7 @@ export class RhythmLab {
     for (let time = Math.ceil(begin / 1000) * 1000; time <= end; time += 1000) c.fillText(`${time / 1000}s`, x(time) - 7, h - 7);
     if (!samples.length && !schedule) { c.fillText("측정하면 센서 깊이와 판정이 여기에 표시됩니다.", L + 15, 85); return; }
     c.save(); c.beginPath(); c.rect(L, T - 16, R - L, h - T - 2); c.clip();
-    const config = this.active ? this.capture?.keyConfig : this.result?.summary ? this.capture?.keyConfig : null;
+    const config = this.active ? this.capture?.keyConfig : this.result?.keyConfig;
     if (config) {
       c.fillStyle = "#b4ed7812"; c.fillRect(L, y(1000), R - L, y(1000 - (config.bottom_deadzone ?? 0)) - y(1000));
       c.fillStyle = "#8594a912"; c.fillRect(L, y(config.top_deadzone), R - L, y(0) - y(config.top_deadzone));
@@ -290,8 +292,9 @@ export class RhythmLab {
     let previous = null;
     for (const sample of samples) {
       if (sample.timeMs < begin - 100 || sample.timeMs > end) continue;
-      if (!previous || sample.segment !== previous.segment) c.moveTo(x(sample.timeMs), y(sample.travel));
-      else c.lineTo(x(sample.timeMs), y(sample.travel));
+      const displayed = sample.recognizedTravel ?? recognizedTravel(sample.travel, config);
+      if (!previous || sample.segment !== previous.segment) c.moveTo(x(sample.timeMs), y(displayed));
+      else c.lineTo(x(sample.timeMs), y(displayed));
       previous = sample;
     }
     c.stroke();
@@ -306,7 +309,7 @@ export class RhythmLab {
       c.fillStyle = edge.type === "press" ? "#b4ed7840" : "#ff9e9c40";
       c.fillRect(x(edge.earliestMs), T, Math.max(1, x(edge.latestMs)-x(edge.earliestMs)), B-T);
       c.fillStyle = edge.type === "press" ? "#b4ed78" : "#ff9e9c";
-      c.beginPath(); c.arc(x(edge.timeMs), y(edge.depthNormalized), 3, 0, Math.PI*2); c.fill();
+      c.beginPath(); c.arc(x(edge.timeMs), y(recognizedTravel(edge.depthNormalized, config)), 3, 0, Math.PI*2); c.fill();
     }
     c.restore();
   }

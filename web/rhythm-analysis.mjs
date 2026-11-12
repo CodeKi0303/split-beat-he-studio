@@ -2,6 +2,7 @@
  * All times are milliseconds relative to the audible playback origin.
  * Observed edges are brackets between polls, not hardware event timestamps.
  */
+import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
 const finite = (v, lo, hi, label) => {
   if (typeof v !== "number" || !Number.isFinite(v) || v < lo || v > hi)
     throw Error(`${label}: ${lo}–${hi} 범위의 수치가 필요합니다.`);
@@ -242,6 +243,8 @@ export class RhythmCapture {
     const lowerMs = Math.min(timeMs - (response - request) / 2, request), upperMs = Math.max(timeMs, response);
     const simulated = this.replay.step(raw);
     const sample = { timeMs, raw, travel, mm: travel * this.totalTravelMm / 1000,
+      recognizedTravel: recognizedTravel(travel, this.keyConfig),
+      recognizedMm: recognizedTravelToMm(travel, this.keyConfig, this.totalTravelMm),
       pressed, sequence, segment: this.segment, lowerMs, upperMs,
       uncertaintyMs: Math.max(timeMs - lowerMs, upperMs - timeMs),
       simulatedPressed: simulated.pressed, simulatedTravel: simulated.travel, replayExtreme: simulated.extreme };
@@ -329,6 +332,11 @@ export class RhythmCapture {
       limits: "호스트가 관찰한 상태 변화의 시간 구간입니다. 샘플 사이의 빠른 눌림·해제는 누락될 수 있고, 오디오 출력 시각과 mm는 추정치입니다." };
   }
   snapshot() { return { schedule: copy(this.schedule), samples: copy(this.samples), edges: copy(this.edges),
+    travelSources: { travel: "Unmodified device STATUS travel; firmware may already clamp deadzone endpoints.",
+      mm: "STATUS travel scaled by configured switch stroke, without an additional host clamp.",
+      recognizedTravel: "Display-only inclusive top/bottom deadzone clamp using this capture's keyConfig; middle unchanged.",
+      recognizedMm: "recognizedTravel scaled by configured switch stroke; bounded to that stroke.",
+      raw: "Unmodified reported ADC. Timing analysis and raw replay do not consume display-clamped fields." },
     simulatedEdges: copy(this.simulatedEdges), summary: this.summary() }; }
 }
 import { rawToTravel, validateCurveId } from "./hall-curve.mjs?v=studio-owlab1";

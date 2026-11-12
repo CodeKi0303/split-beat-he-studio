@@ -1,5 +1,6 @@
 // Protocol-level simulation only: no navigator.hid, network or OS key injection.
 import { rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
+import { recognizedTravel } from "./recognized-travel.mjs?v=studio-recognized-travel1";
 import {
   OP,
   CAP_KEY_CHORD,
@@ -205,7 +206,8 @@ export class DemoTransport {
       for (let i = 0; i < 7; i++) {
         const key = p[0] * 7 + i;
         v.setUint16(16 + i * 2, rawSamples[key], true);
-        v.setUint16(30 + i * 2, this.rt[key].travel, true);
+        // Match exported travel without feeding the clamp into RT history.
+        v.setUint16(30 + i * 2, recognizedTravel(this.rt[key].travel, this.profile.keys[key]), true);
       }
       a[45] =
         Number(this.enabled) |
