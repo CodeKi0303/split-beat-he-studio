@@ -4,6 +4,7 @@ import {
   OP,
   CAP_KEY_CHORD,
   CAP_SAVE_OUTPUT,
+  CAP_RETRIGGER_BEFORE_RELEASE,
   packet,
   unpackPacket,
   encodeKey,
@@ -11,7 +12,7 @@ import {
   encodeBinding,
   decodeBinding,
   validateProfile,
-} from "./protocol.mjs?v=studio-owlab1";
+} from "./protocol.mjs?v=studio-retrigger1";
 const fresh = () =>
   validateProfile({
     schema: "c77-profile-v1",
@@ -38,9 +39,11 @@ const fresh = () =>
 // Snapshot-rate simulation of src/engine.c noise filtering and
 // src/rapid_trigger.c. This is not a 64kHz execution/timing model.
 export function demoRTState(filtered = null) {
-  return { filtered, travel: 0, extreme: 0, pressed: false, rapidCycle: false };
+  return { filtered, travel: 0, extreme: 0, pressed: false, rapidCycle: false, retriggerTrough: null, retriggered: false };
 }
 export function demoRTStep(state, key, raw) {
+  const before = state.pressed, previousTravel = state.travel;
+  state.retriggered = false;
   if (state.filtered === null || Math.abs(raw - state.filtered) >= key.noise_deadband)
     state.filtered = raw;
   const signedSpan = key.pressed - key.released;
@@ -50,6 +53,7 @@ export function demoRTStep(state, key, raw) {
     state.pressed = false;
     state.rapidCycle = false;
     state.extreme = 0;
+    state.retriggerTrough = null;
     return state;
   }
   state.travel = rawToTravel(state.filtered, key);
@@ -82,6 +86,18 @@ export function demoRTStep(state, key, raw) {
     if (state.travel - state.extreme >= key.rt_press) {
       state.pressed = true;
       state.extreme = state.travel;
+    }
+  }
+  const canRetrigger = (key.flags & 10) === 10 && before && state.pressed && state.travel > key.top_deadzone &&
+    !(key.bottom_deadzone && state.travel >= 1000 - key.bottom_deadzone);
+  if (!canRetrigger) state.retriggerTrough = null;
+  else {
+    if (state.travel < previousTravel && state.retriggerTrough === null) state.retriggerTrough = state.travel;
+    if (state.retriggerTrough !== null) {
+      state.retriggerTrough = Math.min(state.retriggerTrough, state.travel);
+      if (state.travel - state.retriggerTrough >= key.rt_press) {
+        state.retriggered = true; state.retriggerTrough = null;
+      }
     }
   }
   return state;
@@ -162,7 +178,7 @@ export class DemoTransport {
       if (p.length) throw Error();
       let [a, v] = out(34);
       a.set([0, 3, 22, 0, 14, 6, 4, 28]);
-      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT, this.generation, 0].forEach((x, i) =>
+      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE, this.generation, 0].forEach((x, i) =>
         v.setUint32(8 + i * 4, x, true),
       );
       v.setUint16(28, 1024, true);

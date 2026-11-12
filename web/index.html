@@ -5,9 +5,10 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Split-Beat HE Studio · 키보드 설정</title>
-    <link rel="stylesheet" href="style.css?v=studio-autofit1" />
+    <link rel="stylesheet" href="style.css?v=studio-retrigger1" />
     <link rel="stylesheet" href="rhythm.css?v=studio-rhythm1" />
     <link rel="stylesheet" href="binding-picker.css?v=studio-chords1" />
+    <link rel="stylesheet" href="rt-setting-help.css?v=studio-rthelp1" />
   </head>
   <body>
     <aside class="sidebar">
@@ -219,7 +220,9 @@
               <div class="checks">
                 <label><input id="enabled" type="checkbox" /> 키 활성화</label
                 ><label><input id="rt" type="checkbox" /> 래피드 트리거</label>
+                <label><input id="retrigger" type="checkbox" /> 미해제 재입력 허용</label>
               </div>
+              <p id="retriggerCompatibility" class="muted" hidden></p>
               <div class="fields">
                 <label class="actuation-field"
                   >작동 지점
@@ -677,6 +680,6 @@
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-autofit1"></script>
+    <script type="module" src="app.mjs?v=studio-retrigger1"></script>
   </body>
 </html>

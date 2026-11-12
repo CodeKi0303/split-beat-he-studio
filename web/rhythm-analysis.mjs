@@ -64,7 +64,7 @@ export class SampledRT {
   constructor(config) {
     this.config = { bottom_deadzone: 0, noise_deadband: 0, ...config };
     const c = this.config;
-    int(c.flags, 0, 7, "키 flags");
+    int(c.flags, 0, 15, "키 flags");
     int(c.released, 0, 4095, "해제 ADC"); int(c.pressed, 0, 4095, "눌림 ADC");
     int(c.actuation, 1, 1000, "작동점"); int(c.rt_press, 1, 1000, "눌림 RT");
     int(c.rt_release, 1, 1000, "복귀 RT"); int(c.top_deadzone, 0, c.actuation - 1, "상단 데드존");
@@ -74,13 +74,15 @@ export class SampledRT {
     this.valid = Boolean(c.flags & 4) && Math.abs(c.pressed - c.released) >= 128;
     this.reset();
   }
-  reset() { this.filtered = null; this.pressed = false; this.extreme = 0; this.rapid = false; }
+  reset() { this.filtered = null; this.pressed = false; this.extreme = 0; this.rapid = false; this.travel = 0; this.retriggerTrough = null; }
   step(raw) {
     int(raw, 0, 4095, "ADC");
-    const c = this.config, before = this.pressed;
+    const c = this.config, before = this.pressed, previousTravel = this.travel;
+    let retriggered = false;
     if (this.filtered === null || Math.abs(raw - this.filtered) >= c.noise_deadband) this.filtered = raw;
     if (!this.valid) return { pressed: false, travel: null, changed: false, extreme: 0 };
     const travel = rawToTravel(this.filtered, c);
+    this.travel = travel;
     if (!(c.flags & 1) || travel <= c.top_deadzone) {
       this.pressed = false; this.rapid = false; this.extreme = travel;
     } else if (!(c.flags & 2)) {
@@ -96,7 +98,21 @@ export class SampledRT {
       this.extreme = Math.min(this.extreme, travel);
       if (travel - this.extreme >= c.rt_press) { this.pressed = true; this.extreme = travel; }
     }
-    return { pressed: this.pressed, travel, changed: before !== this.pressed, extreme: this.extreme };
+    const canRetrigger = (c.flags & 10) === 10 && before && this.pressed && travel > c.top_deadzone &&
+      !(c.bottom_deadzone && travel >= 1000 - c.bottom_deadzone);
+    if (!canRetrigger) this.retriggerTrough = null;
+    else {
+      if (travel < previousTravel && this.retriggerTrough === null) this.retriggerTrough = travel;
+      if (this.retriggerTrough !== null) {
+        this.retriggerTrough = Math.min(this.retriggerTrough, travel);
+        if (travel - this.retriggerTrough >= c.rt_press) {
+          retriggered = true; this.retriggerTrough = null;
+        }
+      }
+    }
+    // A synthetic event is not an observed OFF state. USB ACK scheduling is
+    // firmware-owned and cannot be reconstructed from host sensor snapshots.
+    return { pressed: this.pressed, travel, changed: before !== this.pressed, extreme: this.extreme, retriggered };
   }
 }
 
@@ -154,6 +170,8 @@ function errorStats(matches, type) {
 
 export class RhythmCapture {
   constructor({ settings = {}, keyConfig, totalTravelMm = 4, key = 0, maxGapMs = 80, maxSamples = 24000 } = {}) {
+    if ((keyConfig?.flags & 10) === 10)
+      throw Error("미해제 재입력을 끈 뒤 리듬 판정을 측정하세요. 짧은 USB 해제·눌림 시점은 센서 스냅샷으로 검증할 수 없습니다.");
     this.schedule = makeSchedule(settings);
     finite(totalTravelMm, .1, 10, "총 이동거리(mm)"); int(key, 0, 13, "Hall 키");
     finite(maxGapMs, 1, 500, "최대 관찰 간격"); int(maxSamples, 10, 50000, "샘플 제한");

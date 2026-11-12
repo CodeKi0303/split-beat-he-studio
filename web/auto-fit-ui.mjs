@@ -1,4 +1,4 @@
-import { analyzeAutoFit, evaluateAutoFit } from "./auto-fit.mjs?v=studio-autofit1";
+import { analyzeAutoFit, evaluateAutoFit } from "./auto-fit.mjs?v=studio-retrigger1";
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => structuredClone(value);
@@ -85,11 +85,13 @@ export class AutoFitWizard {
   }
   render() {
     const context = this.getContext(), key = context.profile?.keys[context.selected];
-    const available = context.available && context.selected < 14 && (key?.flags & 5) === 5;
+    const retriggerEnabled = !!(key?.flags & 8);
+    const available = context.available && context.selected < 14 && (key?.flags & 5) === 5 && !retriggerEnabled;
     const phase = phases[this.phaseIndex];
     if (!this.active) $("autoFitProgress").value = this.phases[phase.id] ? 1 : 0;
     $("autoFitKey").textContent = this.source?.label ?? (context.selected < 14 ? context.label : "Hall 키 선택");
-    $("autoFitInstruction").textContent = available || this.active ? phase.instruction : "캘리브레이션을 완료한 Hall 키를 선택하세요.";
+    $("autoFitInstruction").textContent = retriggerEnabled ? "미해제 재입력을 끈 뒤 자동 맞춤을 진행하세요. 짧은 USB 해제·눌림은 이 측정으로 검증할 수 없습니다."
+      : available || this.active ? phase.instruction : "캘리브레이션을 완료한 Hall 키를 선택하세요.";
     $("autoFitStart").textContent = `${phase.title} · ${phase.seconds}초 측정`;
     $("autoFitStart").disabled = !available || this.active || this.applying || this.applied;
     $("autoFitStop").disabled = !this.active || this.applying;

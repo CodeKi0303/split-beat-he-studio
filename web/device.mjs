@@ -23,7 +23,7 @@ import {
   integer,
   requireBindingCapability,
   requireKeyCapability,
-} from "./protocol.mjs?v=studio-adc-windows1";
+} from "./protocol.mjs?v=studio-retrigger1";
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // Native HID open/close promises are not cancellable. Share a per-object
 // barrier across transport instances so a late cleanup cannot close a new

@@ -1,12 +1,13 @@
 import { BatchCalibration } from "./batch-calibration.mjs?v=studio-owlab1";
 import { fetchStudioRelease, firmwareVersionNumber } from "./studio-release.mjs";
-import { RhythmLab } from "./rhythm-ui.mjs?v=studio-owlab1";
-import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-autofit1";
+import { RhythmLab } from "./rhythm-ui.mjs?v=studio-retrigger1";
+import { AutoFitWizard } from "./auto-fit-ui.mjs?v=studio-retrigger1";
+import { mountRTSettingHelp } from "./rt-setting-help.mjs?v=studio-rthelp1";
 import { applyCalibration } from "./apply-calibration.mjs?v=studio-owlab1";
 import {
   proposePerformanceSettings,
   applyPerformanceSettings,
-} from "./performance-settings.mjs?v=studio-owlab1";
+} from "./performance-settings.mjs?v=studio-retrigger1";
 import {
   compatible,
   WebHIDTransport,
@@ -20,11 +21,12 @@ import {
   CAP_MOUSE_BUTTON,
   CAP_BOTTOM_DEADZONE,
   CAP_HALL_CURVE,
+  CAP_RETRIGGER_BEFORE_RELEASE,
   CAP_KEY_CHORD,
   CAP_ADC_TUNING,
   CAP_ADC_PAIR,
   CAP_ADC_PAIR_READ,
-} from "./protocol.mjs?v=studio-adc-windows1";
+} from "./protocol.mjs?v=studio-retrigger1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
@@ -131,6 +133,7 @@ function loadPreferences() {
   }
 }
 function setTab(name) {
+  rtSettingHelp.close();
   if (name !== "rhythm" && rhythm?.active) rhythm.stop("다른 화면으로 이동해 측정을 중단했습니다.");
   if (name !== "rhythm" && autoFit?.active) autoFit.stop("다른 화면으로 이동해 측정을 중단했습니다.");
   activeTab = name;
@@ -380,6 +383,8 @@ function renderKey() {
   $("bottomDeadzoneCompatibility").textContent = "하단 데드존은 펌웨어 v0.3.4부터 지원합니다.";
   $("curveCompatibility").hidden = !connected || !!(info?.capabilities & CAP_HALL_CURVE);
   $("curveCompatibility").textContent = "현재 기기는 선형 보정입니다. 비선형 곡선은 펌웨어 v0.3.5부터 적용할 수 있습니다.";
+  $("retriggerCompatibility").hidden = !connected || !!(info?.capabilities & CAP_RETRIGGER_BEFORE_RELEASE);
+  $("retriggerCompatibility").textContent = "미해제 재입력은 C86 펌웨어 v0.3.37 이상에서 지원합니다.";
   if (!hall()) return;
   const total = travelMm[selected];
   const targets = performanceTargets(),
@@ -396,11 +401,13 @@ function renderKey() {
   }
   $("enabled").checked = !!(k.flags & 1);
   $("rt").checked = !!(k.flags & 2);
+  $("retrigger").checked = !!(k.flags & 8);
   $("enabled").indeterminate = targets.some((id) => !!(profile.keys[id].flags & 1) !== !!(k.flags & 1));
   $("rt").indeterminate = targets.some((id) => !!(profile.keys[id].flags & 2) !== !!(k.flags & 2));
+  $("retrigger").indeterminate = targets.some((id) => !!(profile.keys[id].flags & 8) !== !!(k.flags & 8));
   const sameCurve = targets.every((id) => (profile.keys[id].curve_id ?? 0) === (k.curve_id ?? 0));
   $("curveId").value = sameCurve ? String(k.curve_id ?? 0) : "";
-  let hasMixed = $("enabled").indeterminate || $("rt").indeterminate || !sameTravel || !sameCurve;
+  let hasMixed = $("enabled").indeterminate || $("rt").indeterminate || $("retrigger").indeterminate || !sameTravel || !sameCurve;
   for (const [id, field] of Object.entries(keyFields)) {
     const limit = id === "noise" ? 100 : Math.min(...(targets.length ? targets : [selected]).map((key) => travelMm[key]));
     const valueFor = (key) => id === "noise" ? String(profile.keys[key][field])
@@ -600,6 +607,7 @@ function controls() {
     busy || measuring() || batchActive() || !(info?.capabilities & CAP_BOTTOM_DEADZONE);
   $("curveId").disabled = $("owlabPreset").disabled =
     !mutable || !hall() || !(info?.capabilities & CAP_HALL_CURVE);
+  $("retrigger").disabled = !mutable || !hall() || !(info?.capabilities & CAP_RETRIGGER_BEFORE_RELEASE);
   $("nextKey").disabled = busy || measuring() || calibrationActive();
   document
     .querySelectorAll(".key")
@@ -633,6 +641,7 @@ function controls() {
   autoFit?.updateContext();
 }
 $("rt").onchange = () => markPerformanceDirty("rt");
+$("retrigger").onchange = () => markPerformanceDirty("retrigger");
 $("enabled").onchange = () => markPerformanceDirty("enabled");
 function renderCalibration() {
   if (!hall()) return;
@@ -1030,6 +1039,7 @@ $("keyForm").onsubmit = (e) => {
     if (performanceDirty.has(id)) draft[field] = Number($(id).value);
   if (performanceDirty.has("enabled")) draft.enabled = $("enabled").checked;
   if (performanceDirty.has("rt")) draft.rapid_trigger = $("rt").checked;
+  if (performanceDirty.has("retrigger")) draft.retrigger_before_release = $("retrigger").checked;
   if (performanceDirty.has("curveId")) draft.curve_id = Number($("curveId").value);
   action(async () => {
     const proposed = proposePerformanceSettings(profile, targets, travelMm, draft, info.capabilities);
@@ -1608,6 +1618,7 @@ autoFit = new AutoFitWizard({
   onChange: controls,
   onLog: log,
 });
+const rtSettingHelp = mountRTSettingHelp();
 renderSelection();
 renderBatch();
 controls();

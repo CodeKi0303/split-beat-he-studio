@@ -1,0 +1,14 @@
+.rt-check-help { display: inline-flex; align-items: center; gap: 7px; margin-bottom: 14px; }
+.rt-check-help > label { margin-bottom: 0; }
+.rt-field-help { position: relative; min-width: 0; padding: 13px; border: 1px solid #303945; border-radius: 7px; background: #161b22; }
+.rt-field-help > label { display: block; margin: 0; }
+.rt-field-help > label:has(input:disabled) { color: var(--muted); }
+.rt-field-help > .rt-help-button { position: absolute; top: 8px; right: 10px; }
+button.rt-help-button { display: inline-grid; place-items: center; flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border: 1px solid #7c8e9e; border-radius: 50%; background: #24313e; color: #dbe8f3; font-size: 13px; font-weight: 700; line-height: 1; cursor: help; }
+button.rt-help-button:hover, button.rt-help-button[aria-expanded="true"] { border-color: #b4ed78; color: #b4ed78; }
+button.rt-help-button:focus-visible { outline: 2px solid #b4ed78; outline-offset: 3px; }
+.rt-setting-help { position: fixed; z-index: 3000; width: min(420px, calc(100vw - 24px)); box-sizing: border-box; padding: 18px; overflow-y: auto; border: 1px solid #819770; border-radius: 12px; background: #18232d; color: #e6edf5; box-shadow: 0 12px 38px #0008; font-size: 14px; line-height: 1.65; }
+.rt-setting-help[hidden] { display: none; }
+.rt-setting-help > strong { display: block; font-size: 16px; color: #c3f294; }
+.rt-setting-help p { margin: 10px 0 0; color: #d0dbe7; font-size: 14px; line-height: inherit; }
+@media (min-width: 1280px) { body.performance-tab .fields > .rt-field-help { padding: 10px; } body.performance-tab .fields > .rt-field-help > .rt-help-button { top: 6px; right: 8px; } }

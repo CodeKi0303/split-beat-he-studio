@@ -4,14 +4,14 @@ import {
   keyRecord,
   requireKeyCapability,
   validateProfile,
-} from "./protocol.mjs?v=studio-owlab1";
+} from "./protocol.mjs?v=studio-retrigger1";
 import { mmToNormalized } from "./telemetry.mjs?v=studio-owlab1";
 
 const distanceFields = [
   "actuation", "rt_press", "rt_release", "top_deadzone", "bottom_deadzone",
 ];
 const allowedFields = new Set([
-  ...distanceFields, "noise_deadband", "enabled", "rapid_trigger", "curve_id",
+  ...distanceFields, "noise_deadband", "enabled", "rapid_trigger", "retrigger_before_release", "curve_id",
 ]);
 const canonical = (value) =>
   Array.isArray(value)
@@ -47,7 +47,7 @@ export function proposePerformanceSettings(
     throw Error("변경할 작동점·RT·데드존 설정을 입력하세요.");
   if (!Number.isInteger(capabilities) || capabilities < 0)
     throw Error("장치 기능 정보를 확인할 수 없습니다.");
-  for (const field of ["enabled", "rapid_trigger"])
+  for (const field of ["enabled", "rapid_trigger", "retrigger_before_release"])
     if (Object.hasOwn(draft, field) && typeof draft[field] !== "boolean")
       throw Error(`${field}: 켜짐 또는 꺼짐을 선택하세요.`);
   if (Object.hasOwn(draft, "noise_deadband") &&
@@ -88,6 +88,7 @@ export function proposePerformanceSettings(
     if (Object.hasOwn(draft, "curve_id")) key.curve_id = draft.curve_id;
     if (Object.hasOwn(draft, "enabled")) key.flags = (key.flags & ~1) | Number(draft.enabled);
     if (Object.hasOwn(draft, "rapid_trigger")) key.flags = (key.flags & ~2) | (Number(draft.rapid_trigger) << 1);
+    if (Object.hasOwn(draft, "retrigger_before_release")) key.flags = (key.flags & ~8) | (Number(draft.retrigger_before_release) << 3);
     if ((key.flags & 1) && !(key.flags & 4))
       throw Error(`Hall ${id}: 활성화하려면 먼저 캘리브레이션을 완료하세요.`);
     if ((key.bottom_deadzone ?? 0) > 0 && !(capabilities & CAP_BOTTOM_DEADZONE))
@@ -129,7 +130,7 @@ export async function applyPerformanceSettings(client, originalProfile, candidat
 
   let failure = null, preflightPassed = false, attempted = false;
   try {
-    if (proposed.some((key) => key.curve_id)) {
+    if (proposed.some((key) => key.curve_id || (key.flags & 8))) {
       const deviceInfo = await client.info();
       for (const key of proposed) requireKeyCapability(key, deviceInfo.capabilities);
     }

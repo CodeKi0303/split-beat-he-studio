@@ -1,4 +1,4 @@
-import { SampledRT } from "./rhythm-analysis.mjs?v=studio-owlab1";
+import { SampledRT } from "./rhythm-analysis.mjs?v=studio-retrigger1";
 import { rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
 
 export const AUTO_FIT_PHASES = ["released", "resting", "tapping", "holding"];
@@ -39,6 +39,7 @@ function findCycles(rows, low, high) {
 function prepare(input) {
   if (!input || typeof input !== "object") throw Error("측정 기록이 필요합니다.");
   const { keyConfig, totalTravelMm, phases } = input;
+  if (keyConfig?.flags & 8) throw Error("미해제 재입력을 끈 뒤 자동 맞춤을 진행하세요. 짧은 USB 해제·눌림은 센서 스냅샷만으로 검증할 수 없습니다.");
   if (!Number.isInteger(keyConfig?.key) || keyConfig.key < 0 || keyConfig.key > 13 ||
       (input.key !== undefined && input.key !== keyConfig.key))
     throw Error("측정 기록의 Hall 키 번호가 일치하지 않습니다.");

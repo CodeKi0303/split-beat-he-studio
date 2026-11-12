@@ -17,6 +17,8 @@ export const CAP_SAVE_OUTPUT = 0x4000;
 export const CAP_ADC_TUNING = 0x8000;
 export const CAP_ADC_PAIR = 0x10000;
 export const CAP_ADC_PAIR_READ = 0x20000;
+// C86 v0.3.37+: key.flags bit3 requests a new HID press before full RT release.
+export const CAP_RETRIGGER_BEFORE_RELEASE = 0x40000;
 export const ADC_SCAN_RATES = [8000, 16000, 32000, 64000, 96000];
 export const ADC_WINDOWS = [0, 1, 2, 4, 6, 8];
 // Read-only C86 left v0.3.8+ ADC stop snapshot; not simulated by demo mode.
@@ -261,7 +263,7 @@ export function keyRecord(o) {
   for (const k of KEY_FIELDS)
     d[k] = integer(["bottom_deadzone", "curve_id"].includes(k) && !Object.hasOwn(o, k) ? 0 : o[k], 0, 65535, k);
   integer(d.key, 0, 13, "key");
-  integer(d.flags, 0, 7, "flags");
+  integer(d.flags, 0, 15, "flags");
   for (const k of ["released", "pressed"]) integer(d[k], 0, 4095, k);
   for (const k of ["actuation", "rt_press", "rt_release"])
     integer(d[k], 1, 1000, k);
@@ -291,6 +293,8 @@ export function decodeKey(a) {
   return keyRecord(o);
 }
 export function requireKeyCapability(key, capabilities) {
+  if ((key.flags & 8) && !(capabilities & CAP_RETRIGGER_BEFORE_RELEASE))
+    throw Error("미해제 재입력은 이를 지원하는 C86 펌웨어 0.3.37 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   if (key.curve_id && !(capabilities & CAP_HALL_CURVE))
     throw Error("비선형 거리 보정은 펌웨어 0.3.5 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   if (key.bottom_deadzone && !(capabilities & CAP_BOTTOM_DEADZONE))

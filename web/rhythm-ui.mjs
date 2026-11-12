@@ -1,5 +1,5 @@
 import { RhythmAudio } from "./rhythm-audio.mjs?v=studio-owlab1";
-import { RhythmCapture, makeSchedule } from "./rhythm-analysis.mjs?v=studio-owlab1";
+import { RhythmCapture, makeSchedule } from "./rhythm-analysis.mjs?v=studio-retrigger1";
 
 const $ = (id) => document.getElementById(id);
 const fmt = (v, n = 1) => Number.isFinite(v) ? v.toFixed(n) : "—";
@@ -78,9 +78,11 @@ export class RhythmLab {
   }
   updateContext() {
     const context = this.getContext();
-    const valid = context.available && context.selected < 14 && Boolean(context.profile?.keys[context.selected]?.flags & 4)
+    const retriggerEnabled = (context.profile?.keys[context.selected]?.flags & 10) === 10;
+    const valid = !retriggerEnabled && context.available && context.selected < 14 && Boolean(context.profile?.keys[context.selected]?.flags & 4)
       && Boolean(context.profile?.keys[context.selected]?.flags & 1);
     $("rhythmStart").disabled = this.active || !valid || Boolean(this.settingsError);
+    $("rhythmStart").title = retriggerEnabled ? "미해제 재입력을 끈 뒤 측정하세요. USB 재입력 펄스는 이 센서 측정으로 검증할 수 없습니다." : "";
     $("rhythmStop").disabled = !this.active;
     for (const id of controlIds) $(id).disabled = this.active;
     $("rhythmExport").disabled = this.active || !this.result?.samples?.length;
