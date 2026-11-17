@@ -18,9 +18,12 @@ import {
   CAP_ADC_TUNING,
   CAP_ADC_PAIR,
   CAP_ADC_PAIR_READ,
+  CAP_FINE_TRAVEL,
+  TRAVEL_MAX,
   ADC_SCAN_RATES,
   ADC_WINDOWS,
   integer,
+  keyRecord,
   requireBindingCapability,
   requireKeyCapability,
 } from "./protocol.mjs?v=studio-retrigger1";
@@ -255,7 +258,7 @@ export class KeyboardClient {
     if (op === OP.SET_BINDING)
       requireBindingCapability(decodeBinding(payload), this.deviceInfo?.capabilities ?? 0);
     if (op === OP.SET_KEY)
-      requireKeyCapability(decodeKey(payload), this.deviceInfo?.capabilities ?? 0);
+      requireKeyCapability(decodeKey(payload, this.legacyTravel), this.deviceInfo?.capabilities ?? 0);
     this.seq = (this.seq % 65535) + 1;
     try {
       const p = await this.transport.exchange(packet(op, this.seq, payload), timeout);
@@ -276,11 +279,24 @@ export class KeyboardClient {
       return { ...this.deviceInfo, demo: this.transport.demo };
     });
   }
+  async _identity() {
+    if (!this.identified) {
+      this.deviceInfo = decodeInfo(await this.request(OP.INFO));
+      this.identified = true;
+    }
+    return this.deviceInfo;
+  }
+  // Firmware <=0.3.42 speaks 0..1000 travel; Studio always works in 0..10000.
+  get legacyTravel() {
+    return !!this.deviceInfo && !(this.deviceInfo.capabilities & CAP_FINE_TRAVEL);
+  }
   status(side) {
     integer(side, 0, 1, "side");
     return this.run(async () => {
+      await this._identity();
       let r = decodeStatus(
         await this.request(OP.STATUS, new Uint8Array([side])),
+        this.legacyTravel,
       );
       this.outputEnabled = r.output_enabled;
       return r;
@@ -320,10 +336,12 @@ export class KeyboardClient {
     });
   }
   async _config(read = (op, payload) => this.request(op, payload)) {
+    if (!this.identified) await this._identity();
+    const legacy = this.legacyTravel;
     let keys = [],
       bindings = [];
     for (let i = 0; i < 14; i++)
-      keys.push(decodeKey(await read(OP.GET_KEY, new Uint8Array([i]))));
+      keys.push(decodeKey(await read(OP.GET_KEY, new Uint8Array([i])), legacy));
     for (let i = 0; i < 28; i++)
       bindings.push(
         decodeBinding(await read(OP.GET_BINDING, new Uint8Array([i]))),
@@ -331,6 +349,7 @@ export class KeyboardClient {
     return validateProfile({
       schema: "c77-profile-v1",
       board: "C77",
+      travel_max: TRAVEL_MAX,
       keys,
       bindings,
     });
@@ -339,10 +358,13 @@ export class KeyboardClient {
     return this.run(() => this._config());
   }
   setKey(key) {
-    const bytes = encodeKey(key);
-    return this.run(async () =>
-      decodeKey(await this.request(OP.SET_KEY, bytes)),
-    );
+    encodeKey(key); // Validate synchronously, before queueing.
+    return this.run(async () => {
+      await this._identity();
+      requireKeyCapability(keyRecord(key), this.deviceInfo.capabilities);
+      const legacy = this.legacyTravel;
+      return decodeKey(await this.request(OP.SET_KEY, encodeKey(key, legacy)), legacy);
+    });
   }
   setBinding(binding) {
     const bytes = encodeBinding(binding);
@@ -381,15 +403,18 @@ export class KeyboardClient {
       // Reject an unsupported profile before OUTPUT or any partial RAM writes.
       this.deviceInfo = decodeInfo(await this.request(OP.INFO));
       this.identified = true;
-      for (const k of p.keys)
+      const legacy = this.legacyTravel;
+      for (const k of p.keys) {
         requireKeyCapability(k, this.deviceInfo.capabilities);
+        encodeKey(k, legacy); // Older firmware: reject 0.001 mm steps before OUTPUT.
+      }
       for (const b of p.bindings)
         requireBindingCapability(b, this.deviceInfo.capabilities);
       await this.request(OP.OUTPUT, new Uint8Array([0]));
       let count = 0;
       try {
         for (const k of p.keys) {
-          await this.request(OP.SET_KEY, encodeKey(k));
+          await this.request(OP.SET_KEY, encodeKey(k, legacy));
           count++;
         }
         for (const b of p.bindings) {
@@ -411,7 +436,7 @@ export class KeyboardClient {
       const expected = await this._config(),
         before = decodeInfo(await this.request(OP.INFO));
       const expectedOutput = !!(before.capabilities & CAP_SAVE_OUTPUT) &&
-        decodeStatus(await this.request(OP.STATUS, new Uint8Array([0]))).output_enabled;
+        decodeStatus(await this.request(OP.STATUS, new Uint8Array([0])), this.legacyTravel).output_enabled;
       await this.transport.prepareSaveReconnect?.();
       const generation = before.generation === 0xffffffff ? 1 : before.generation + 1;
       let acknowledged = false, lastError;
@@ -450,12 +475,12 @@ export class KeyboardClient {
           // response from the handle that is just about to disappear.
           await this.sleep(Math.min(250, Math.max(0, stop - this.clock())));
           const finalInfo = decodeInfo(await read(OP.INFO));
-          const status = decodeStatus(await read(OP.STATUS, new Uint8Array([0])));
+          const status = decodeStatus(await read(OP.STATUS, new Uint8Array([0])), this.legacyTravel);
           if (finalInfo.generation !== generation || !finalInfo.storage_valid ||
               status.dirty || !status.stored_valid)
             throw manualRecovery("저장 후 상태 불일치: 출력·저장 상태를 직접 확인하세요.");
           if (expectedOutput && !status.output_enabled &&
-              (!status.fresh || !decodeStatus(await read(OP.STATUS, new Uint8Array([1]))).fresh))
+              (!status.fresh || !decodeStatus(await read(OP.STATUS, new Uint8Array([1])), this.legacyTravel).fresh))
             throw Error("양쪽 센서 준비 대기 중");
           if (status.output_enabled !== expectedOutput)
             throw manualRecovery("저장 후 출력 상태가 저장 직전과 다릅니다.");

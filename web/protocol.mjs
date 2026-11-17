@@ -19,6 +19,15 @@ export const CAP_ADC_PAIR = 0x10000;
 export const CAP_ADC_PAIR_READ = 0x20000;
 // C86 v0.3.37+: key.flags bit3 requests a new HID press before full RT release.
 export const CAP_RETRIGGER_BEFORE_RELEASE = 0x40000;
+// Firmware 0.3.43+: travel thresholds, STATUS and ADC trace use 0..10000.
+export const CAP_FINE_TRAVEL = 0x80000;
+// Normalized travel used everywhere in Studio. Older firmware speaks 0..1000;
+// device.mjs converts at the HID boundary. One unit is 1/10000 of the stroke,
+// fine enough for 0.001 mm entry; it is not the sensor's physical resolution.
+export const TRAVEL_MAX = 10000;
+export const LEGACY_TRAVEL_MAX = 1000;
+export const LEGACY_TRAVEL_SCALE = TRAVEL_MAX / LEGACY_TRAVEL_MAX;
+export const TRAVEL_FIELDS = ["actuation", "rt_press", "rt_release", "top_deadzone", "bottom_deadzone"];
 export const ADC_SCAN_RATES = [8000, 16000, 32000, 64000, 96000];
 export const ADC_WINDOWS = [0, 1, 2, 4, 6, 8];
 // Read-only C86 left v0.3.8+ ADC stop snapshot; not simulated by demo mode.
@@ -118,7 +127,7 @@ export function encodeAdcTraceKeys(keys) {
     throw new Error("ADC trace requires exactly two distinct local keys (0..6)");
   return Uint8Array.from(keys);
 }
-export function decodeAdcTrace(payload) {
+export function decodeAdcTrace(payload, legacy = false) {
   if (!(payload instanceof Uint8Array) || payload.byteLength !== 54)
     throw new Error("ADC trace response must contain 54 bytes");
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
@@ -129,10 +138,13 @@ export function decodeAdcTrace(payload) {
     if (values.slice(0, 10).some(value => value > 4095))
       throw new Error("ADC trace raw, averaged and deadband ADC values must be 12-bit");
     const packed = values[10];
-    if ((packed & 0x7c00) || (packed & 0x3ff) > 1000)
+    // 0.3.43+: travel bits0..13, bit14 zero. Older firmware: bits0..9 of0..1000.
+    const [reserved, mask, limit] = legacy ? [0x7c00, 0x3ff, LEGACY_TRAVEL_MAX] : [0x4000, 0x3fff, TRAVEL_MAX];
+    if ((packed & reserved) || (packed & mask) > limit)
       throw new Error("ADC trace travel/reserved bits are invalid");
     return {key, raw_history: values.slice(0, 8), averaged: values[8],
-      after_deadband: values[9], travel: packed & 0x3ff, pressed: Boolean(packed & 0x8000)};
+      after_deadband: values[9], travel: (packed & mask) * (legacy ? LEGACY_TRAVEL_SCALE : 1),
+      pressed: Boolean(packed & 0x8000)};
   });
   return {sample_sequence: view.getUint32(0, true), timestamp_us: view.getUint32(4, true), keys, rows};
 }
@@ -266,30 +278,42 @@ export function keyRecord(o) {
   integer(d.flags, 0, 15, "flags");
   for (const k of ["released", "pressed"]) integer(d[k], 0, 4095, k);
   for (const k of ["actuation", "rt_press", "rt_release"])
-    integer(d[k], 1, 1000, k);
+    integer(d[k], 1, TRAVEL_MAX, k);
   integer(d.top_deadzone, 0, d.actuation - 1, "top_deadzone");
-  integer(d.bottom_deadzone, 0, 1000 - d.actuation, "bottom_deadzone");
+  integer(d.bottom_deadzone, 0, TRAVEL_MAX - d.actuation, "bottom_deadzone");
   integer(d.noise_deadband, 0, 100, "noise");
   integer(d.curve_id, 0, 1, "curve_id");
   if (d.flags & 4 && Math.abs(d.released - d.pressed) < 128)
     throw Error("보정 ADC 범위는 128 이상이어야 합니다");
   return d;
 }
-export function encodeKey(o) {
+// legacy=true encodes for firmware without CAP_FINE_TRAVEL (0..1000 units).
+export function encodeKey(o, legacy = false) {
   let d = keyRecord(o),
     a = new Uint8Array(22),
     v = new DataView(a.buffer);
+  if (legacy) {
+    for (const k of TRAVEL_FIELDS) {
+      if (d[k] % LEGACY_TRAVEL_SCALE)
+        throw Error("현재 펌웨어는 총 이동거리의 1/1000 단위만 저장합니다. 0.001 mm 단위 설정은 펌웨어 0.3.43 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
+      d[k] /= LEGACY_TRAVEL_SCALE;
+    }
+  }
   a[0] = d.key;
   a[1] = d.flags;
   KEY_FIELDS.slice(2).forEach((k, i) => v.setUint16(2 + i * 2, d[k], true));
   return a;
 }
-export function decodeKey(a) {
+export function decodeKey(a, legacy = false) {
   if (a.length !== 22 || a.slice(20).some((x) => x))
     throw Error("key record length/reserved");
   let v = new DataView(a.buffer, a.byteOffset, a.byteLength),
     o = { key: a[0], flags: a[1] };
   KEY_FIELDS.slice(2).forEach((k, i) => (o[k] = v.getUint16(2 + i * 2, true)));
+  if (legacy) {
+    if (TRAVEL_FIELDS.some((k) => o[k] > LEGACY_TRAVEL_MAX)) throw Error("legacy key record outside 0..1000");
+    for (const k of TRAVEL_FIELDS) o[k] *= LEGACY_TRAVEL_SCALE;
+  }
   return keyRecord(o);
 }
 export function requireKeyCapability(key, capabilities) {
@@ -372,8 +396,10 @@ export function decodeBinding(a) {
     modifiers: a[4],
   });
 }
+// Profiles carry travel_max=10000. Older exports without it hold 0..1000
+// thresholds and are converted, so each threshold keeps its stroke fraction.
 export function validateProfile(o) {
-  fields(o, ["schema", "board", "keys", "bindings"]);
+  fields(o, ["schema", "board", "keys", "bindings", ...(Object.hasOwn(o ?? {}, "travel_max") ? ["travel_max"] : [])]);
   if (o.schema !== "c77-profile-v1" || o.board !== "C77")
     throw Error("프로필 버전/보드 불일치");
   if (
@@ -383,14 +409,24 @@ export function validateProfile(o) {
     o.bindings.length !== 28
   )
     throw Error("키 14개와 binding 28개 필요");
-  let keys = o.keys.map(keyRecord).sort((a, b) => a.key - b.key),
+  const scale = Object.hasOwn(o, "travel_max") ? o.travel_max : LEGACY_TRAVEL_MAX;
+  if (scale !== TRAVEL_MAX && scale !== LEGACY_TRAVEL_MAX)
+    throw Error("travel_max는 10000이어야 합니다 (없으면 0..1000 단위의 이전 프로필)");
+  const source = scale === TRAVEL_MAX ? o.keys : o.keys.map((k) => {
+    if (!k || typeof k !== "object" || Array.isArray(k)) throw Error("프로필 필드 불일치");
+    const copy = { ...k };
+    for (const name of TRAVEL_FIELDS)
+      if (Object.hasOwn(copy, name)) copy[name] = integer(copy[name], 0, LEGACY_TRAVEL_MAX, name) * LEGACY_TRAVEL_SCALE;
+    return copy;
+  });
+  let keys = source.map(keyRecord).sort((a, b) => a.key - b.key),
     bindings = o.bindings.map(bindingRecord).sort((a, b) => a.input - b.input);
   if (
     keys.some((k, i) => k.key !== i) ||
     bindings.some((b, i) => b.input !== i)
   )
     throw Error("중복/누락 index");
-  return { schema: "c77-profile-v1", board: "C77", keys, bindings };
+  return { schema: "c77-profile-v1", board: "C77", travel_max: TRAVEL_MAX, keys, bindings };
 }
 export function decodeAdcDiagnostics(p) {
   if (p.length !== 52) throw Error("ADC diagnostics response must contain 13 uint32 fields (52 bytes)");
@@ -440,7 +476,7 @@ export function decodeInfo(p) {
     throw Error("C77/C85/C86 left-master protocol1 전용");
   return d;
 }
-export function decodeStatus(p) {
+export function decodeStatus(p, legacy = false) {
   if (p.length !== 54) throw Error("STATUS length");
   let v = new DataView(p.buffer, p.byteOffset, p.byteLength),
     d = {};
@@ -452,9 +488,10 @@ export function decodeStatus(p) {
   if (
     v.getUint16(52, true) ||
     d.raw.some((x) => x > 4095) ||
-    d.travel.some((x) => x > 1000)
+    d.travel.some((x) => x > (legacy ? LEGACY_TRAVEL_MAX : TRAVEL_MAX))
   )
     throw Error("invalid telemetry");
+  if (legacy) d.travel = d.travel.map((x) => x * LEGACY_TRAVEL_SCALE);
   d.digital_mask = p[44];
   d.output_enabled = Boolean(p[45] & 1);
   d.fresh = Boolean(p[45] & 2);

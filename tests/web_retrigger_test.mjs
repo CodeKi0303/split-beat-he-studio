@@ -6,8 +6,9 @@ import { KeyboardClient } from "../web/device.mjs";
 import { SampledRT, RhythmCapture } from "../web/rhythm-analysis.mjs";
 import { analyzeAutoFit } from "../web/auto-fit.mjs";
 
+// Raw offsets below sit on a 1000-code span: travel is 10x each offset.
 const key = keyRecord({ key:0, flags:15, released:1000, pressed:2000,
-  actuation:150, rt_press:150, rt_release:200, top_deadzone:10,
+  actuation:1500, rt_press:1500, rt_release:2000, top_deadzone:100,
   bottom_deadzone:0, noise_deadband:0, curve_id:0 });
 assert.deepEqual(decodeKey(encodeKey(key)), key);
 assert.throws(() => keyRecord({...key,flags:16}));
@@ -29,7 +30,7 @@ for (const flags of [7,15,13]) {
   assert.equal(seen[7].pressed,true);
   assert.equal(seen.at(-1).pressed,false);
 }
-const bottom={...key, bottom_deadzone:200, rt_press:20, rt_release:250};
+const bottom={...key, bottom_deadzone:2000, rt_press:200, rt_release:2500};
 const held=new SampledRT(bottom);
 for(const travel of [0,900,850,900,810,950]) assert.equal(held.step(1000+travel).retriggered,false);
 

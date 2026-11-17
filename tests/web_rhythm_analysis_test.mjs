@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
 import { validateSettings, makeSchedule, matchTimingEdges, SampledRT, RhythmCapture, depthAt } from "../web/rhythm-analysis.mjs";
 
-const key = { key: 0, flags: 7, released: 1000, pressed: 3000, actuation: 200,
-  rt_press: 100, rt_release: 100, top_deadzone: 20, bottom_deadzone: 0, noise_deadband: 5 };
+// Travel is 0..10000 units; raw ADC spans 1000..3000 (one ADC code = 5 units).
+const key = { key: 0, flags: 7, released: 1000, pressed: 3000, actuation: 2000,
+  rt_press: 1000, rt_release: 1000, top_deadzone: 200, bottom_deadzone: 0, noise_deadband: 5 };
 const make = (settings = {}, options = {}) => new RhythmCapture({ settings, keyConfig: key, ...options });
 const sample = (timeMs, sequence, travel = 0, pressed = false, extra = {}) => ({
-  timeMs, raw: 1000 + travel * 2, travel, pressed, sequence, fresh: true,
+  timeMs, raw: 1000 + Math.round(travel / 5), travel, pressed, sequence, fresh: true,
   requestMs: timeMs - 1, responseMs: timeMs + 1, ...extra,
 });
 
@@ -58,7 +59,7 @@ assert.throws(() => make({}, { keyConfig: { ...key, flags: 3 } }));
 const prepOnly = make({ bars: 1 });
 for (let t = 0, seq = 0; t <= 4500; t += 10, seq++) {
   const down = t >= 250 && t < 1800 && t % 250 < 30;
-  prepOnly.addSample(sample(t, seq, down ? 500 : 0, down));
+  prepOnly.addSample(sample(t, seq, down ? 5000 : 0, down));
 }
 assert.ok(prepOnly.edges.length > 0, "Raw preparation observations are retained");
 assert.equal(prepOnly.summary().extraEdges.length, 0);
@@ -82,18 +83,18 @@ for (const delayMs of [0, 300]) {
 const rt = new SampledRT(key);
 assert.equal(rt.step(1000).pressed, false);
 assert.equal(rt.step(1400).pressed, true);
-assert.equal(rt.step(2000).travel, 500);
-assert.equal(rt.step(1998).travel, 500); // 2ADC jitter stays filtered.
+assert.equal(rt.step(2000).travel, 5000);
+assert.equal(rt.step(1998).travel, 5000); // 2ADC jitter stays filtered.
 assert.equal(rt.step(1800).pressed, false);
 assert.equal(rt.step(2000).pressed, true);
 assert.equal(rt.step(1000).pressed, false);
 const reverse = new SampledRT({ ...key, released: 3000, pressed: 1000 });
 assert.equal(reverse.step(2600).pressed, true);
 assert.equal(reverse.step(3000).travel, 0);
-const bottom = new SampledRT({ ...key, bottom_deadzone: 200 });
-assert.equal(bottom.step(3000).extreme, 800);
+const bottom = new SampledRT({ ...key, bottom_deadzone: 2000 });
+assert.equal(bottom.step(3000).extreme, 8000);
 assert.equal(bottom.step(2620).pressed, true);
-assert.equal(bottom.step(2500).pressed, true); // retreat only50 from lower-zone boundary.
+assert.equal(bottom.step(2500).pressed, true); // retreat only500 from lower-zone boundary.
 assert.equal(bottom.step(2400).pressed, false);
 const normal = new SampledRT({ ...key, flags: 5 });
 normal.step(2200);
@@ -102,12 +103,12 @@ assert.equal(normal.step(1380).pressed, false);
 
 // A sampled edge has an interval, not a manufactured microsecond timestamp.
 const c = make({ bars: 1 });
-c.addSample(sample(1990, 1, 100, false));
-c.addSample(sample(2010, 2, 300, true));
+c.addSample(sample(1990, 1, 1000, false));
+c.addSample(sample(2010, 2, 3000, true));
 assert.equal(c.edges.length, 1);
 assert.equal(c.edges[0].timeMs, 2000);
 assert.deepEqual([c.edges[0].earliestMs, c.edges[0].latestMs], [1989, 2011]);
-assert.equal(depthAt(c.samples, 2000).normalized, 200);
+assert.equal(depthAt(c.samples, 2000).normalized, 2000);
 assert.equal(c.summary().matches[0].timing, "within_observation_window");
 assert.equal(c.summary().pendingTargets, 15);
 c.setSoundEvent({ id: "note-0", kind: "on", timeMs: 2015 });
@@ -116,21 +117,21 @@ assert.equal(c.schedule.targets.find((x) => x.id === "note-0-release").soundMs, 
 assert.equal(c.schedule.cues.find((x) => x.id === "note-0").onMs, 2015);
 assert.throws(() => c.setSoundEvent({ id: "unknown", kind: "on", timeMs: 0 }));
 const captured = c.snapshot();
-captured.samples[0].travel = 999;
-assert.equal(c.samples[0].travel, 100);
+captured.samples[0].travel = 9999;
+assert.equal(c.samples[0].travel, 1000);
 
 // Age-adjusted midpoint still includes the earliest request-age bound.
 const aged = make();
 aged.addSample(sample(101, 1, 0, false, { requestMs: 100, responseMs: 110 })); // midpoint105-age4
-aged.addSample(sample(121, 2, 500, true, { requestMs: 120, responseMs: 130 }));
+aged.addSample(sample(121, 2, 5000, true, { requestMs: 120, responseMs: 130 }));
 assert.equal(aged.samples[0].lowerMs, 96);
 assert.equal(aged.samples[0].upperMs, 110);
 assert.equal(aged.edges[0].earliestMs, 96);
 assert.equal(aged.edges[0].latestMs, 130);
 const slow = make();
 slow.addSample(sample(0, 1));
-assert.equal(slow.addSample(sample(55, 2, 500, true, { requestMs: 10, responseMs: 100 })), false);
-slow.addSample(sample(110, 3, 500, true));
+assert.equal(slow.addSample(sample(55, 2, 5000, true, { requestMs: 10, responseMs: 100 })), false);
+slow.addSample(sample(110, 3, 5000, true));
 assert.equal(slow.edges.length, 0);
 assert.equal(slow.simulatedEdges.length, 0);
 assert.equal(depthAt(slow.samples, 55), null);
@@ -138,7 +139,7 @@ assert.equal(slow.counts.gaps, 1);
 assert.equal(slow.issues[0].reason, "slow_transaction");
 const delayedResponse = make();
 delayedResponse.addSample(sample(0, 1));
-delayedResponse.addSample(sample(60, 2, 500, true, { requestMs: 20, responseMs: 100 }));
+delayedResponse.addSample(sample(60, 2, 5000, true, { requestMs: 20, responseMs: 100 }));
 assert.equal(delayedResponse.edges.length, 0); // RTT80, but response gap99ms is too wide.
 assert.equal(depthAt(delayedResponse.samples, 30), null);
 assert.equal(delayedResponse.issues[0].reason, "response_gap");
@@ -149,14 +150,14 @@ broken.addSample(sample(0, 0xfffffffe));
 assert.equal(broken.addSample(sample(10, 0xfffffffe)), false);
 assert.equal(broken.addSample(sample(20, 0xffffffff)), true);
 assert.equal(broken.addSample(sample(30, 0)), true); // wrap is forward.
-assert.equal(broken.addSample(sample(40, 1, 500, true, { fresh: false })), false);
-broken.addSample(sample(50, 2, 500, true));
+assert.equal(broken.addSample(sample(40, 1, 5000, true, { fresh: false })), false);
+broken.addSample(sample(50, 2, 5000, true));
 assert.equal(broken.edges.length, 0);
 assert.equal(depthAt(broken.samples, 40), null);
 broken.addSample(sample(200, 3, 0, false));
 assert.equal(broken.edges.length, 0);
 assert.equal(depthAt(broken.samples, 150), null);
-broken.addSample(sample(210, 2, 500, true)); // backwards sequence starts segment.
+broken.addSample(sample(210, 2, 5000, true)); // backwards sequence starts segment.
 assert.equal(broken.edges.length, 0);
 assert.equal(broken.counts.resets, 1);
 assert.equal(broken.counts.gaps, 1);
@@ -175,7 +176,7 @@ const timed = make({ bars: 1, delayMs: 20 });
 const notes = timed.schedule.cues.filter((x) => x.type === "tap");
 for (let t = 0, seq = 0; t <= 4500; t += 10, seq++) {
   const down = notes.some((note) => t >= note.onMs + 20 && t < note.offMs + 20);
-  timed.addSample(sample(t, seq, down ? 500 : 0, down));
+  timed.addSample(sample(t, seq, down ? 5000 : 0, down));
 }
 const summary = timed.summary();
 assert.equal(summary.press.count, 8);
@@ -201,9 +202,9 @@ for (let t = 0, seq = 0; t <= held.schedule.durationMs; t += 10, seq++) {
   const note = sustained.find((n) => t >= n.onMs && t <= n.offMs + 50);
   let travel = 0, down = false;
   if (note) {
-    if (t < note.onMs + 100) travel = Math.min(800, (t - note.onMs) * 8);
-    else if (t < note.offMs - 50) travel = 800 - (seq % 2) * 20;
-    else travel = Math.max(0, 400 - (t - note.offMs) * 8);
+    if (t < note.onMs + 100) travel = Math.min(8000, (t - note.onMs) * 80);
+    else if (t < note.offMs - 50) travel = 8000 - (seq % 2) * 200;
+    else travel = Math.max(0, 4000 - (t - note.offMs) * 80);
     down = t >= note.onMs + 30 && t < note.offMs;
     if (note.id === "note-0" && t >= note.onMs + 300 && t < note.onMs + 330) down = false;
   }
@@ -215,8 +216,8 @@ assert.equal(hs.holds[0].earlyReleaseCount, 1);
 assert.equal(hs.holds[0].unpressedInteriorSamples, 3);
 assert.equal(hs.holds[1].earlyReleaseCount, 0);
 assert.equal(hs.holds[1].continuousCoverage, true);
-assert.equal(hs.recommendation.rtRelease.minimumToHoldNormalized, 21);
-assert.equal(hs.recommendation.rtRelease.desiredAtReleaseNormalized, 400);
+assert.equal(hs.recommendation.rtRelease.minimumToHoldNormalized, 201);
+assert.equal(hs.recommendation.rtRelease.desiredAtReleaseNormalized, 4000);
 assert.equal(hs.recommendation.rtRelease.compatible, true);
 assert.equal(hs.recommendation.rtRelease.mm, 1.6);
 assert.ok(hs.simulated.note.includes("모의"));
@@ -224,10 +225,10 @@ const nonRtHeld = make({ mode: "hold", bars: 2 }, { keyConfig: { ...key, flags: 
 for (const row of held.samples) nonRtHeld.addSample(sample(row.timeMs, row.sequence, row.travel, row.pressed));
 assert.equal(nonRtHeld.summary().recommendation.rtRelease.compatible, false);
 assert.ok(nonRtHeld.summary().recommendation.rtRelease.note.includes("RT가 꺼져"));
-const lowerHeld = make({ mode: "hold", bars: 2 }, { keyConfig: { ...key, bottom_deadzone: 200 } });
+const lowerHeld = make({ mode: "hold", bars: 2 }, { keyConfig: { ...key, bottom_deadzone: 2000 } });
 for (const source of held.samples) {
   // Plateaus stay inside the lower deadzone; they must not become retreat.
-  const travel = source.travel >= 780 ? source.travel + 100 : source.travel;
+  const travel = source.travel >= 7800 ? source.travel + 1000 : source.travel;
   lowerHeld.addSample(sample(source.timeMs, source.sequence, travel, source.pressed));
 }
 assert.equal(lowerHeld.summary().recommendation.rtRelease.minimumToHoldNormalized, 1);

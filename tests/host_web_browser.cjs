@@ -251,7 +251,7 @@ let browser;
   await page.locator("#totalTravel").fill("3.8");
   await page.locator("#applyTravel").click();
   assert.equal(await page.locator("#totalTravel").inputValue(), "3.80");
-  assert.equal(await page.locator("#actuation").getAttribute("step"), "0.01");
+  assert.equal(await page.locator("#actuation").getAttribute("step"), "0.001");
   await page.locator("#topDeadzone").fill("0.00");
   await page.locator("#actuation").fill("0.01");
   await page.locator("#rt").check();
@@ -261,8 +261,8 @@ let browser;
   await notice("Hall 설정 RAM 적용 완료");
   assert.match(
     await page.locator("#notice").textContent(),
-    /0\.011/,
-    "show actual normalized-unit rounding",
+    /작동 0\.010 mm/,
+    "0.001 mm input round-trips through 0..10000 device units",
   );
 
   // Ordinary switches and rotary directions must not offer Hall settings.
@@ -365,9 +365,10 @@ let browser;
     "c77-profile-v1",
     "wire profile remains compatible",
   );
-  assert.equal(exported.device.keys[0].actuation, 3);
-  assert.equal(exported.device.keys[0].rt_press, 5);
-  assert.equal(exported.device.keys[0].rt_release, 8);
+  assert.equal(exported.device.travel_max, 10000);
+  assert.equal(exported.device.keys[0].actuation, 26); // 0.01 mm of 3.8 mm in 1/10000 units
+  assert.equal(exported.device.keys[0].rt_press, 53);
+  assert.equal(exported.device.keys[0].rt_release, 79);
   assert.equal(exported.device.keys[0].top_deadzone, 0);
   assert.equal(
     exported.device.keys[0].noise_deadband,
@@ -475,6 +476,8 @@ let browser;
               response.payload.byteOffset,
               response.payload.byteLength,
             ).setUint32(16, 0x1f, true);
+            // This firmware predates CAP_FINE_TRAVEL: send 0..1000 records like it would.
+            simulator.wireLegacy = true;
           }
           if (response.op === 0x82 && !response.status && mock.stale)
             response.payload[45] &= ~2;

@@ -1,5 +1,7 @@
 import { SampledRT } from "./rhythm-analysis.mjs?v=studio-retrigger1";
 import { rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
+import { TRAVEL_MAX } from "./protocol.mjs?v=studio-retrigger1";
+// Depth thresholds below are in 0..10000 travel units (1/10000 of the stroke).
 
 export const AUTO_FIT_PHASES = ["released", "resting", "tapping", "holding"];
 const phaseNames = { released: "손 떼기", resting: "손 얹기", tapping: "반복 입력", holding: "길게 누르기" };
@@ -74,14 +76,14 @@ function prepare(input) {
       throw Error(`${phaseNames[phase]}를 2초 이상 측정하세요.`);
   }
   const released = records.released.map((row) => row.depth);
-  if (quantile(released, .95) > 80) throw Error("손 떼기 기록이 보정된 시작 위치에서 멉니다. 손을 완전히 떼고 다시 측정하세요.");
+  if (quantile(released, .95) > 800) throw Error("손 떼기 기록이 보정된 시작 위치에서 멉니다. 손을 완전히 떼고 다시 측정하세요.");
   const releasedMax = Math.max(...released);
   const restMax = Math.max(releasedMax, ...records.resting.map((row) => row.depth));
-  const margin = Math.max(6, Math.ceil((releasedMax - Math.min(...released)) * 1.5));
+  const margin = Math.max(60, Math.ceil((releasedMax - Math.min(...released)) * 1.5));
   const tapDepths = records.tapping.map((row) => row.depth);
   const tapLow = quantile(tapDepths, .1), tapHigh = quantile(tapDepths, .9);
   const amplitude = tapHigh - tapLow;
-  if (amplitude < Math.max(100, margin * 4)) throw Error("반복 입력의 움직임을 구분하기 어렵습니다. 키를 충분히 눌렀다 놓으며 다시 측정하세요.");
+  if (amplitude < Math.max(1000, margin * 4)) throw Error("반복 입력의 움직임을 구분하기 어렵습니다. 키를 충분히 눌렀다 놓으며 다시 측정하세요.");
   const cycles = findCycles(records.tapping, tapLow + amplitude * .25, tapLow + amplitude * .65);
   if (cycles.length < 6) throw Error("완료된 반복 입력이 6회 미만입니다. 편한 속도로 6회 이상 눌렀다 놓아 주세요.");
   const minimumPeak = Math.min(...cycles.map((cycle) => records.tapping[cycle.peak].depth));
@@ -90,7 +92,7 @@ function prepare(input) {
   const holdRows = records.holding;
   const holdInterior = holdRows.filter((row) => row.timeMs >= holdRows[0].timeMs + 250 && row.timeMs <= holdRows.at(-1).timeMs - 250);
   const holdDepths = holdInterior.map((row) => row.depth);
-  if (quantile(holdDepths, .1) < restMax + Math.max(80, margin * 3))
+  if (quantile(holdDepths, .1) < restMax + Math.max(800, margin * 3))
     throw Error("길게 누르기 기록에서 키가 충분히 눌리지 않았습니다. 누른 상태를 유지하며 다시 측정하세요.");
   let peak = holdDepths[0], holdRetreat = 0;
   for (const depth of holdDepths) { peak = Math.max(peak, depth); holdRetreat = Math.max(holdRetreat, peak - depth); }
@@ -141,7 +143,7 @@ function hasObserved(data) {
 }
 function inMillimetres(config, travel) {
   return Object.fromEntries(["actuation", "rt_press", "rt_release", "top_deadzone", "bottom_deadzone"]
-    .map((field) => [field, round(config[field] * travel / 1000)]));
+    .map((field) => [field, round(config[field] * travel / TRAVEL_MAX)]));
 }
 function describe(config, data) {
   return { config, label: config.flags & 2 ? "래피드 트리거 사용" : "고정 작동점 사용",
@@ -162,7 +164,7 @@ export function analyzeAutoFit(input) {
   try {
     const data = prepare(input), { config, preference, evidence: e } = data;
     const baseline = describe(config, data);
-    const top = clamp(e.releasedMax + e.noiseMargin, 0, 998);
+    const top = clamp(e.releasedMax + e.noiseMargin, 0, TRAVEL_MAX - 2);
     const low = Math.max(top + 1, e.restMax + e.noiseMargin);
     const span = e.minimumTapPeak - low;
     const targetActuation = low + span * ({ balanced: .35, repeat: .2, hold: .4 }[preference]);
@@ -170,14 +172,14 @@ export function analyzeAutoFit(input) {
     const targetRelease = Math.max(e.noiseMargin, e.holdRetreat + e.noiseMargin + e.tapAmplitude * ({ balanced: .08, repeat: .03, hold: .15 }[preference]));
     const actuations = unique([low, low + span * .2, low + span * .35, low + span * .5, targetActuation, config.actuation])
       .filter((value) => value > top && value < e.minimumTapPeak);
-    const presses = unique([e.noiseMargin, targetPress, e.tapAmplitude * .15, config.rt_press]).map((value) => clamp(value, 1, 1000));
-    const releases = unique([e.noiseMargin, targetRelease, e.holdRetreat + e.noiseMargin, e.tapAmplitude * .25, config.rt_release]).map((value) => clamp(value, 1, 1000));
-    const bottoms = unique([0, config.bottom_deadzone, e.holdMinimum >= 800 ? Math.min(200, 1000 - e.holdMinimum + e.noiseMargin) : 0]);
+    const presses = unique([e.noiseMargin, targetPress, e.tapAmplitude * .15, config.rt_press]).map((value) => clamp(value, 1, TRAVEL_MAX));
+    const releases = unique([e.noiseMargin, targetRelease, e.holdRetreat + e.noiseMargin, e.tapAmplitude * .25, config.rt_release]).map((value) => clamp(value, 1, TRAVEL_MAX));
+    const bottoms = unique([0, config.bottom_deadzone, e.holdMinimum >= 8000 ? Math.min(2000, TRAVEL_MAX - e.holdMinimum + e.noiseMargin) : 0]);
     const candidates = [baseline];
     for (const actuation of actuations) {
       candidates.push(describe({ ...config, flags: config.flags & ~2, actuation, top_deadzone: top, bottom_deadzone: 0 }, data));
       for (const rt_press of presses) for (const rt_release of releases) for (const bottom_deadzone of bottoms) {
-        if (bottom_deadzone > 1000 - actuation) continue;
+        if (bottom_deadzone > TRAVEL_MAX - actuation) continue;
         candidates.push(describe({ ...config, flags: config.flags | 2, actuation, rt_press, rt_release, top_deadzone: top, bottom_deadzone }, data));
       }
     }
@@ -187,10 +189,10 @@ export function analyzeAutoFit(input) {
       const c = candidate.config, m = candidate.metrics;
       const errors = m.restActivations * 8 + m.holdDrops * 8 + m.holdUnpressedFraction * 8 +
         m.missedTaps * 4 + m.missedReleases * 4 + m.extraTaps * 6;
-      const fit = Math.abs(c.actuation - targetActuation) / 1000 +
-        (c.flags & 2 ? (Math.abs(c.rt_press - targetPress) + Math.abs(c.rt_release - targetRelease)) / 3000
+      const fit = Math.abs(c.actuation - targetActuation) / TRAVEL_MAX +
+        (c.flags & 2 ? (Math.abs(c.rt_press - targetPress) + Math.abs(c.rt_release - targetRelease)) / (3 * TRAVEL_MAX)
           : ({ balanced: .08, repeat: .15, hold: 0 }[preference]));
-      return errors * 1000 + fit + c.bottom_deadzone / 100000;
+      return errors * 1000 + fit + c.bottom_deadzone / (100 * TRAVEL_MAX);
     }
     safe.sort((a, b) => score(a) - score(b));
     const best = safe[0];

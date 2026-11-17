@@ -7,6 +7,9 @@ import {
   CAP_KEY_CHORD,
   CAP_SAVE_OUTPUT,
   CAP_RETRIGGER_BEFORE_RELEASE,
+  CAP_FINE_TRAVEL,
+  TRAVEL_MAX,
+  LEGACY_TRAVEL_SCALE,
   packet,
   unpackPacket,
   encodeKey,
@@ -19,15 +22,16 @@ const fresh = () =>
   validateProfile({
     schema: "c77-profile-v1",
     board: "C77",
+    travel_max: TRAVEL_MAX,
     keys: Array.from({ length: 14 }, (_, key) => ({
       key,
       flags: 3,
       released: 0,
       pressed: 0,
-      actuation: 200,
-      rt_press: 100,
-      rt_release: 100,
-      top_deadzone: 20,
+      actuation: 2000,
+      rt_press: 1000,
+      rt_release: 1000,
+      top_deadzone: 200,
       noise_deadband: 5,
     })),
     bindings: defaultBindings(),
@@ -62,10 +66,10 @@ export function demoRTStep(state, key, raw) {
     state.pressed = state.travel >= key.actuation;
     state.rapidCycle = false;
     state.extreme = state.travel;
-  } else if (key.bottom_deadzone && state.travel >= 1000 - key.bottom_deadzone) {
+  } else if (key.bottom_deadzone && state.travel >= TRAVEL_MAX - key.bottom_deadzone) {
     state.pressed = true;
     state.rapidCycle = true;
-    state.extreme = 1000 - key.bottom_deadzone;
+    state.extreme = TRAVEL_MAX - key.bottom_deadzone;
   } else if (!state.rapidCycle) {
     if (state.travel >= key.actuation) {
       state.pressed = true;
@@ -86,7 +90,7 @@ export function demoRTStep(state, key, raw) {
     }
   }
   const canRetrigger = (key.flags & 10) === 10 && before && state.pressed && state.travel > key.top_deadzone &&
-    !(key.bottom_deadzone && state.travel >= 1000 - key.bottom_deadzone);
+    !(key.bottom_deadzone && state.travel >= TRAVEL_MAX - key.bottom_deadzone);
   if (!canRetrigger) state.retriggerTrough = null;
   else {
     if (state.travel < previousTravel && state.retriggerTrough === null) state.retriggerTrough = state.travel;
@@ -104,7 +108,11 @@ export class DemoTransport {
   constructor({ clock = () => Date.now() } = {}) {
     this.clock = clock;
     this.profile = fresh();
+    // Demo depth knob 0..1000 -> ADC 1000..3000 (a calibrated key reads pose*10 travel).
     this.pose = Array(14).fill(0);
+    // Wire units follow the capability word actually sent in the last INFO, so
+    // tests that emulate firmware <=0.3.42 also receive 0..1000 records.
+    this.wireLegacy = false;
     this.generation = 0;
     this.stored = null;
     this.storedOutput = false;
@@ -156,6 +164,8 @@ export class DemoTransport {
       status = e.message === "NOT_READY" ? 7 : 4;
       reply = new Uint8Array();
     }
+    if (p.op === OP.INFO && !status && reply.length >= 20)
+      this.wireLegacy = !(new DataView(reply.buffer, reply.byteOffset, reply.byteLength).getUint32(16, true) & CAP_FINE_TRAVEL);
     return unpackPacket(packet(p.op | 128, p.seq, reply, status));
   }
   command(op, p) {
@@ -175,7 +185,7 @@ export class DemoTransport {
       if (p.length) throw Error();
       let [a, v] = out(34);
       a.set([0, 3, 22, 0, 14, 6, 4, 28]);
-      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE, this.generation, 0].forEach((x, i) =>
+      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL, this.generation, 0].forEach((x, i) =>
         v.setUint32(8 + i * 4, x, true),
       );
       v.setUint16(28, 1024, true);
@@ -203,7 +213,8 @@ export class DemoTransport {
         const key = p[0] * 7 + i;
         v.setUint16(16 + i * 2, rawSamples[key], true);
         // Match exported travel without feeding the clamp into RT history.
-        v.setUint16(30 + i * 2, recognizedTravel(this.rt[key].travel, this.profile.keys[key]), true);
+        const travel = recognizedTravel(this.rt[key].travel, this.profile.keys[key]);
+        v.setUint16(30 + i * 2, this.wireLegacy ? Math.round(travel / LEGACY_TRAVEL_SCALE) : travel, true);
       }
       a[45] =
         Number(this.enabled) |
@@ -217,19 +228,19 @@ export class DemoTransport {
     }
     if (op === OP.GET_KEY) {
       if (p.length !== 1) throw Error();
-      return encodeKey(this.profile.keys[p[0]]);
+      return encodeKey(this.profile.keys[p[0]], this.wireLegacy);
     }
     if (op === OP.GET_BINDING) {
       if (p.length !== 1) throw Error();
       return encodeBinding(this.profile.bindings[p[0]]);
     }
     if (op === OP.SET_KEY) {
-      let k = decodeKey(p);
+      let k = decodeKey(p, this.wireLegacy);
       this.profile.keys[k.key] = k;
       this.enabled = false;
       this.dirty = true;
       this.resetRT();
-      return encodeKey(k);
+      return encodeKey(k, this.wireLegacy);
     }
     if (op === OP.SET_BINDING) {
       let b = decodeBinding(p);

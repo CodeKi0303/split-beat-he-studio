@@ -27,6 +27,8 @@ import {
   CAP_ADC_TUNING,
   CAP_ADC_PAIR,
   CAP_ADC_PAIR_READ,
+  CAP_FINE_TRAVEL,
+  TRAVEL_MAX,
 } from "./protocol.mjs?v=studio-retrigger1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
@@ -425,7 +427,7 @@ function renderKey() {
   let hasMixed = $("enabled").indeterminate || $("rt").indeterminate || $("retrigger").indeterminate || !sameTravel || !sameCurve;
   for (const [id, field] of Object.entries(keyFields)) {
     const limit = Math.min(...(targets.length ? targets : [selected]).map((key) => travelMm[key]));
-    const valueFor = (key) => normalizedToMm(profile.keys[key][field] ?? 0, travelMm[key]).toFixed(2);
+    const valueFor = (key) => normalizedToMm(profile.keys[key][field] ?? 0, travelMm[key]).toFixed(3);
     const mixed = targets.some((key) => valueFor(key) !== valueFor(selected));
     hasMixed ||= mixed;
     $(id).max = String(limit);
@@ -449,10 +451,14 @@ function renderKey() {
   $("performanceGate").textContent = !targets.length ? "키를 선택하세요."
     : targets.some((id) => !(profile.keys[id].flags & 4)) ? "미보정 키 포함" : "";
   $("applyKey").textContent = targets.length > 1 ? `${targets.length}개 키에 적용` : "선택 키에 적용";
+  // 0.3.43+ stores 1/10000 of the stroke; older firmware 1/1000 (input rounds to it).
+  const fine = !connected || !!(info?.capabilities & CAP_FINE_TRAVEL);
+  const step = fine ? `내부 설정 1단계 ≈ ${fmt(total / TRAVEL_MAX, 5)} mm`
+    : `현재 펌웨어 설정 1단계 ≈ ${fmt(total / 1000, 4)} mm (0.001 mm 입력은 펌웨어 v0.3.43부터 그대로 저장, 지금은 이 단위로 반올림)`;
   $("quantization").textContent = calibrated
     ? k.curve_id
-      ? `내부 설정 1단계 ≈ ${fmt(total / 1000, 4)} mm · Owlab Ti HE 근사곡선 · ADC당 이동량은 위치별로 다릅니다.`
-      : `내부 설정 1단계 ≈ ${fmt(total / 1000, 4)} mm · 현재 보정 기준 ADC 1단계 ≈ ${fmt(total / span, 4)} mm (선형 추정)`
+      ? `${step} · Owlab Ti HE 근사곡선 · ADC당 이동량은 위치별로 다릅니다.`
+      : `${step} · 현재 보정 기준 ADC 1단계 ≈ ${fmt(total / span, 4)} mm (선형 추정, 판정은 이 단위로 움직입니다)`
     : "거리 기반 설정은 캘리브레이션 후 적용할 수 있습니다.";
   renderTravel();
   controls();
@@ -467,7 +473,7 @@ function renderTravel() {
   const mm = s?.fresh && (k?.flags & 4)
     ? recognizedTravelToMm(s.travel[idx], k, travelMm[selected])
     : null;
-  $("liveTravel").textContent = mm === null ? "— mm" : `${fmt(mm)} mm`;
+  $("liveTravel").textContent = mm === null ? "— mm" : `${fmt(mm, 3)} mm`;
   $("liveRaw").textContent =
     `ADC ${s?.fresh ? s.raw[idx] : "—"}${k && !(k.flags & 4) ? " · 미보정" : ""}`;
   $("travelFill").style.height =
@@ -493,7 +499,7 @@ for (const id of ["actuation", "rtPress", "rtRelease", "topDeadzone", "bottomDea
     renderTravel();
   };
   $(id + "Range").oninput = () => {
-    $(id).value = Number($(id + "Range").value).toFixed(2);
+    $(id).value = Number($(id + "Range").value).toFixed(3);
     $(id + "Range").setAttribute("aria-valuetext", `${$(id).value} mm`);
     markPerformanceDirty(id);
     renderTravel();
@@ -881,7 +887,7 @@ function renderStatus(side, s) {
     const id = side * 7 + i,
       b = $(`key-${id}`);
     b.querySelector(".raw").textContent = s.fresh ? s.raw[i] : "—";
-    b.querySelector(".bar").style.width = `${s.fresh ? recognizedTravel(s.travel[i], profile?.keys[id]) / 10 : 0}%`;
+    b.querySelector(".bar").style.width = `${s.fresh ? recognizedTravel(s.travel[i], profile?.keys[id]) * 100 / TRAVEL_MAX : 0}%`;
   }
   renderPressedKeys(side);
   $("outputState").textContent = s.output_enabled ? "출력 켜짐" : "출력 꺼짐";

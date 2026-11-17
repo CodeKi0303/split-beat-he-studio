@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { proposePerformanceSettings, applyPerformanceSettings } from "../web/performance-settings.mjs";
-import { CAP_BOTTOM_DEADZONE, validateProfile } from "../web/protocol.mjs";
+import { CAP_BOTTOM_DEADZONE, CAP_FINE_TRAVEL, validateProfile } from "../web/protocol.mjs";
 
 const clone = (v) => structuredClone(v);
 const base = validateProfile({
-  schema: "c77-profile-v1", board: "C77",
+  schema: "c77-profile-v1", board: "C77", travel_max: 10000,
   keys: Array.from({ length: 14 }, (_, key) => ({
     key, flags: key === 7 ? 6 : 7, released: key < 7 ? 1000 + key : 3100 + key,
     pressed: key < 7 ? 3000 + key : 1100 + key,
-    actuation: 200, rt_press: 100, rt_release: 80 + key,
-    top_deadzone: 20, bottom_deadzone: 0, noise_deadband: key,
+    actuation: 2000, rt_press: 1000, rt_release: 800 + key * 10,
+    top_deadzone: 200, bottom_deadzone: 0, noise_deadband: key,
   })),
   bindings: Array.from({ length: 28 }, (_, input) => ({ input, kind: 1, code: 4 + input, modifiers: 0 })),
 });
@@ -17,12 +17,18 @@ const travel = Array(14).fill(4); travel[7] = 3.2;
 const draft = { actuation: 0.8, rt_press: 0.16, bottom_deadzone: 0.32 };
 const original = clone(base), beforeDraft = clone(draft);
 const pair = proposePerformanceSettings(base, [0, 7], travel, draft, CAP_BOTTOM_DEADZONE);
-assert.equal(pair[0].actuation, 200);
-assert.equal(pair[1].actuation, 250, "same mm with different per-key travel");
-assert.equal(pair[0].rt_press, 40);
-assert.equal(pair[1].rt_press, 50);
-assert.equal(pair[0].bottom_deadzone, 80);
-assert.equal(pair[1].bottom_deadzone, 100);
+assert.equal(pair[0].actuation, 2000);
+assert.equal(pair[1].actuation, 2500, "same mm with different per-key travel");
+assert.equal(pair[0].rt_press, 400);
+assert.equal(pair[1].rt_press, 500);
+assert.equal(pair[0].bottom_deadzone, 800);
+assert.equal(pair[1].bottom_deadzone, 1000);
+// 0.001 mm reaches firmware 0.3.43+; older firmware rounds to 1/1000 of the stroke.
+const fineDraft = { actuation: 0.801, rt_press: 0.161 };
+const fine = proposePerformanceSettings(base, [0, 7], travel, fineDraft, CAP_BOTTOM_DEADZONE | CAP_FINE_TRAVEL);
+assert.deepEqual(fine.map((key) => [key.actuation, key.rt_press]), [[2003, 403], [2503, 503]]);
+const coarse = proposePerformanceSettings(base, [0, 7], travel, fineDraft, CAP_BOTTOM_DEADZONE);
+assert.deepEqual(coarse.map((key) => [key.actuation, key.rt_press]), [[2000, 400], [2500, 500]]);
 for (const key of pair) {
   for (const field of ["released", "pressed", "flags", "rt_release", "top_deadzone", "noise_deadband"])
     assert.equal(key[field], base.keys[key.key][field], `preserve per-key ${field}`);

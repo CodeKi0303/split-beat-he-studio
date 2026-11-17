@@ -3,6 +3,7 @@
 // Original 3.3 mm coordinates are normalized; total switch travel (e.g. user
 // supplied Owlab Ti HE 3.4 mm) scales the resulting distance proportionally.
 // Source URL: https://neonhe.com/assets/index-C2gKFU8p.js
+import { TRAVEL_MAX } from "./protocol.mjs?v=studio-retrigger1";
 export const HALL_CURVE_LINEAR = 0;
 export const HALL_CURVE_OWLAB_TI = 1;
 export const OWLAB_TI_TRAVEL_MM = 3.4;
@@ -21,14 +22,14 @@ export function rawToTravel(raw, key) {
     throw Error("유효한 ADC와 캘리브레이션 끝점이 필요합니다.");
   const distance = (raw - key.released) * Math.sign(signedSpan);
   if (distance <= 0) return 0;
-  if (distance >= span) return 1000;
+  if (distance >= span) return TRAVEL_MAX;
   if (id === HALL_CURVE_LINEAR)
-    return Math.floor((distance * 1000 + Math.floor(span / 2)) / span);
+    return Math.floor((distance * TRAVEL_MAX + Math.floor(span / 2)) / span);
   const x = Math.floor((distance * 10000 + Math.floor(span / 2)) / span);
   let hi = 1;
   while (hi < signal.length - 1 && x > signal[hi]) hi++;
   const lo = hi - 1, width = signal[hi] - signal[lo];
   const y = reference[lo] + Math.floor(((x - signal[lo]) *
     (reference[hi] - reference[lo]) + Math.floor(width / 2)) / width);
-  return Math.floor((y * 1000 + 16500) / 33000);
+  return Math.floor((y * TRAVEL_MAX + 16500) / 33000);
 }

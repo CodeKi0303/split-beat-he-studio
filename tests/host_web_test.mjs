@@ -12,6 +12,7 @@ import {
   keyRecord,
   CAP_BOTTOM_DEADZONE,
   CAP_KEY_CHORD,
+  CAP_FINE_TRAVEL,
   ADC_DIAGNOSTICS,
   ADC_DIAGNOSTIC_FIELDS,
   decodeAdcDiagnostics,
@@ -104,7 +105,7 @@ traceView.setUint32(0, 0xfffffffe, true); traceView.setUint32(4, 0x12345678, tru
 traceView.setUint8(8, 5); traceView.setUint8(9, 6);
 const traceRows = [
   [...Array.from({length: 8}, (_, i) => 1000 + i), 1004, 1005, 0x8000 | 321],
-  [...Array(8).fill(4095), 4095, 4094, 1000],
+  [...Array(8).fill(4095), 4095, 4094, 10000],
 ];
 traceRows.forEach((values, row) => values.forEach((value, i) => traceView.setUint16(10 + row * 22 + i * 2, value, true)));
 assert.deepEqual(decodeAdcTrace(tracePayload), {
@@ -113,9 +114,17 @@ assert.deepEqual(decodeAdcTrace(tracePayload), {
     {key: 5, raw_history: Array.from({length: 8}, (_, i) => 1000 + i), averaged: 1004,
       after_deadband: 1005, travel: 321, pressed: true},
     {key: 6, raw_history: Array(8).fill(4095), averaged: 4095,
-      after_deadband: 4094, travel: 1000, pressed: false},
+      after_deadband: 4094, travel: 10000, pressed: false},
   ],
 });
+// Firmware <=0.3.42 packed 0..1000 in bits 0..9; scaled to Studio's 0..10000.
+const legacyTrace = tracePayload.slice(), legacyView = new DataView(legacyTrace.buffer);
+legacyView.setUint16(52, 1000, true); legacyView.setUint16(30, 0x8000 | 32, true);
+assert.deepEqual(decodeAdcTrace(legacyTrace, true).rows.map((row) => [row.travel, row.pressed]), [[320, true], [10000, false]]);
+for (const [offset, value] of [[30, 1001], [52, 1023], ...Array.from({length: 5}, (_, i) => [30, 1 << (10 + i)])]) {
+  const bad = legacyTrace.slice(); new DataView(bad.buffer).setUint16(offset, value, true);
+  assert.throws(() => decodeAdcTrace(bad, true));
+}
 assert.deepEqual(unpackPacket(packet(ADC_TRACE | 128, 9, tracePayload)).payload, tracePayload);
 assert.deepEqual(encodeAdcTraceKeys([6, 0]), Uint8Array.of(6, 0));
 for (const keys of [null, {}, [], [5], [5, 6, 2], [5, 5], [-1, 6], [0, 7], [true, 6], [5.1, 6], ["5", 6]])
@@ -124,7 +133,7 @@ for (const length of [0, 10, 52, 53, 55, 64])
   assert.throws(() => decodeAdcTrace(new Uint8Array(length)), /54 bytes/);
 for (const [offset, value, width] of [[8, 7, 1], [9, 5, 1],
   [10, 4096, 2], [26, 4096, 2], [28, 4096, 2], [32, 4096, 2], [48, 4096, 2], [50, 4096, 2],
-  [30, 1001, 2], [52, 1023, 2], ...Array.from({length: 5}, (_, i) => [30, 1 << (10 + i), 2])]) {
+  [30, 10001, 2], [52, 16383, 2], [30, 1 << 14, 2]]) {
   const bad = tracePayload.slice(), view = new DataView(bad.buffer);
   if (width === 1) view.setUint8(offset, value); else view.setUint16(offset, value, true);
   assert.throws(() => decodeAdcTrace(bad));
@@ -299,9 +308,9 @@ assert.deepEqual([...encodeKey(oldKey).slice(16)], [0,0,0,0,0,0]);
 const newKey = {...oldKey, bottom_deadzone:125};
 assert.deepEqual(decodeKey(encodeKey(newKey)), newKey);
 assert.deepEqual([...encodeKey(newKey).slice(16,18)], [125,0]);
-for (const bottom_deadzone of [-1,801,false,null])
+for (const bottom_deadzone of [-1,8001,false,null])
   assert.throws(() => keyRecord({...oldKey,bottom_deadzone}));
-assert.equal(keyRecord({...oldKey,bottom_deadzone:800}).bottom_deadzone,800);
+assert.equal(keyRecord({...oldKey,bottom_deadzone:8000}).bottom_deadzone,8000);
 const reservedKey=encodeKey(newKey);reservedKey[20]=1;
 assert.throws(() => decodeKey(reservedKey), /reserved/);
 for (const b of profile.bindings)
@@ -408,6 +417,41 @@ await assert.rejects(
   }).save(),
   /검증 실패/,
 );
+// Firmware <=0.3.42 (no CAP_FINE_TRAVEL) speaks 0..1000; Studio converts at the boundary.
+class Legacy0342 extends DemoTransport {
+  writes = [];
+  command(op, p) {
+    if (op === 4) this.writes.push(p.slice());
+    const reply = super.command(op, p);
+    if (op === 1) { const v = new DataView(reply.buffer); v.setUint32(16, v.getUint32(16, true) & ~CAP_FINE_TRAVEL, true); }
+    return reply;
+  }
+}
+const coarseTransport = new Legacy0342(), coarse = new KeyboardClient(coarseTransport);
+const coarseProfile = await coarse.getConfig();
+assert.equal(coarseProfile.travel_max, 10000);
+assert.equal(coarseProfile.keys[0].actuation, 2000);
+const coarseKey = { ...coarseProfile.keys[0], actuation: 1760, top_deadzone: 880 };
+assert.deepEqual(await coarse.setKey(coarseKey), coarseKey);
+assert.equal(new DataView(coarseTransport.writes.at(-1).buffer).getUint16(6, true), 176);
+await assert.rejects(() => coarse.setKey({ ...coarseKey, actuation: 1765 }), /0.3.43/);
+const fineProfile = structuredClone(coarseProfile); fineProfile.keys[5].rt_press = 1001;
+await assert.rejects(() => coarse.importProfile(fineProfile), /0.3.43/);
+assert.equal(coarseTransport.writes.length, 1, "0.001 mm steps are rejected before any write");
+assert.equal((await coarse.status(0)).travel.every((value) => value % 10 === 0), true);
+const fineClient = new KeyboardClient(new DemoTransport());
+const fineKey = { ...(await fineClient.getConfig()).keys[0], actuation: 1765 };
+assert.deepEqual(await fineClient.setKey(fineKey), fineKey);
+// Profiles exported before 0.3.43 omit travel_max and hold 0..1000 thresholds.
+const oldExport = structuredClone(coarseProfile); delete oldExport.travel_max;
+oldExport.keys = oldExport.keys.map((k) => ({ ...k, actuation: 176, rt_press: 176, rt_release: 294, top_deadzone: 88, bottom_deadzone: 88 }));
+const converted = validateProfile(oldExport);
+assert.equal(converted.travel_max, 10000);
+assert.deepEqual([converted.keys[0].actuation, converted.keys[0].rt_release, converted.keys[0].bottom_deadzone], [1760, 2940, 880]);
+assert.deepEqual(validateProfile(converted), converted);
+assert.throws(() => validateProfile({ ...converted, travel_max: 100 }), /travel_max/);
+const tooLarge = structuredClone(oldExport); tooLarge.keys[0].actuation = 1001;
+assert.throws(() => validateProfile(tooLarge));
 console.log(
-  "Web codec + simulation/calibration/import/SAVE/wrong-sequence tests PASS",
+  "Web codec + simulation/calibration/import/SAVE/wrong-sequence/fine-travel tests PASS",
 );

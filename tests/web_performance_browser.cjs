@@ -152,9 +152,9 @@ DemoTransport.prototype.command = function(op, payload) {
   for (let id = 0; id < 14; id++) {
     const expected = structuredClone(fixture.device.keys[id]);
     if ([0, 7].includes(id)) Object.assign(expected, {
-      actuation: id === 0 ? 200 : 250,
-      rt_press: id === 0 ? 40 : 50,
-      bottom_deadzone: id === 0 ? 80 : 100,
+      actuation: id === 0 ? 2000 : 2500,
+      rt_press: id === 0 ? 400 : 500,
+      bottom_deadzone: id === 0 ? 800 : 1000,
     });
     assert.deepEqual(group.device.keys[id], expected, `key ${id}: only edited distances change`);
   }
@@ -192,7 +192,7 @@ DemoTransport.prototype.command = function(op, payload) {
   const curved = await exportProfile(), expectedCurve = structuredClone(flagsApplied);
   for (const id of [0, 7]) {
     expectedCurve.device.keys[id].curve_id = 1;
-    expectedCurve.device.keys[id].actuation = Math.round(.4 / 3.4 * 1000);
+    expectedCurve.device.keys[id].actuation = Math.round(.4 / 3.4 * 10000);
     expectedCurve.ui.totalTravelMm[id] = 3.4;
   }
   assert.deepEqual(curved, expectedCurve);
@@ -203,8 +203,8 @@ DemoTransport.prototype.command = function(op, payload) {
   // Filtered STATUS travel deliberately disagrees with the instantaneous ADC.
   // Live distances and default sensor statistics follow firmware RT travel.
   // The optional ADC view still exposes the reported ADC code.
-  await page.evaluate(() => { window.__statusTravelTest = {raw: 1234, travel: 750}; });
-  await page.waitForFunction(() => document.querySelector("#liveTravel").textContent === "2.55 mm");
+  await page.evaluate(() => { window.__statusTravelTest = {raw: 1234, travel: 7500}; });
+  await page.waitForFunction(() => document.querySelector("#liveTravel").textContent === "2.550 mm");
   for (const id of [0, 7]) {
     assert.equal(await page.locator(`#key-${id} .travel`).textContent(), "2.55 mm");
     assert.equal(await page.locator(`#key-${id} .bar`).evaluate((bar) => bar.style.width), "75%");

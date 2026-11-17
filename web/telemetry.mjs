@@ -1,7 +1,9 @@
 // Host-observed STATUS samples, not the ADC's full-rate acquisition stream.
 // Endpoints plus an optional reference curve estimate distance, not physical
-// characterization of the switch/magnet. 0.01 mm is a UI setting increment.
+// characterization of the switch/magnet. 0.001 mm is a UI setting increment;
+// one sensor ADC code is usually several thousandths of a millimetre.
 import { rawToTravel, validateCurveId } from "./hall-curve.mjs?v=studio-owlab1";
+import { TRAVEL_MAX } from "./protocol.mjs?v=studio-retrigger1";
 const HALL_COUNT = 14;
 const SIDE_COUNT = 7;
 const finite = (value, name) => {
@@ -21,14 +23,14 @@ export function validateTotalTravel(totalMm) {
 }
 export function normalizedToMm(value, totalMm) {
   finite(value, "normalized travel");
-  return (value * validateTotalTravel(totalMm)) / 1000;
+  return (value * validateTotalTravel(totalMm)) / TRAVEL_MAX;
 }
 export function mmToNormalized(mm, totalMm) {
   finite(mm, "travel mm");
   validateTotalTravel(totalMm);
   if (mm < 0 || mm > totalMm)
     throw Error("설정 거리가 전체 이동거리를 벗어납니다");
-  return Math.round((mm * 1000) / totalMm);
+  return Math.round((mm * TRAVEL_MAX) / totalMm);
 }
 function calibratedSpan(keyConfig) {
   if (!keyConfig || !(keyConfig.flags & 4)) return null;
@@ -47,7 +49,7 @@ export function rawToEstimatedMm(raw, keyConfig, totalMm) {
   const span = calibratedSpan(keyConfig);
   if (span === null) return null;
   if (validateCurveId(keyConfig.curve_id ?? 0))
-    return rawToTravel(raw, keyConfig) * totalMm / 1000;
+    return rawToTravel(raw, keyConfig) * totalMm / TRAVEL_MAX;
   // Preserve the legacy continuous linear display (not rounded STATUS units).
   return Math.max(0, Math.min(1, (raw - keyConfig.released) / span)) * totalMm;
 }
@@ -154,7 +156,7 @@ export class TelemetryStore {
         status.raw[i] > 4095 ||
         !Number.isFinite(status.travel[i]) ||
         status.travel[i] < 0 ||
-        status.travel[i] > 1000
+        status.travel[i] > TRAVEL_MAX
       )
         return false;
     }

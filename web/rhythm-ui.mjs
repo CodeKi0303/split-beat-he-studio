@@ -1,6 +1,7 @@
 import { RhythmAudio } from "./rhythm-audio.mjs?v=studio-owlab1";
 import { RhythmCapture, makeSchedule, matchTimingEdges } from "./rhythm-analysis.mjs?v=studio-rhythm-practice2";
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
+import { TRAVEL_MAX } from "./protocol.mjs?v=studio-retrigger1";
 import { RhythmPracticeView, practiceInputStart, normalizeNoteSpeed, readNoteSpeed, saveNoteSpeed,
   noteLookaheadMs } from "./rhythm-visuals.mjs?v=studio-consumed-notes1";
 
@@ -258,7 +259,7 @@ export class RhythmLab {
       const covered = s.holds.filter((h) => h.continuousCoverage), drops = covered.reduce((n, h) => n + h.earlyReleaseCount, 0);
       const r = s.recommendation.rtRelease;
       $("rhythmHoldSummary").textContent = `연속 관측 ${covered.length}/${s.holds.length}음 · 유지 중 해제 ${drops}회. ` +
-        (r.compatible ? `복귀 RT 참고 범위: 유지하려면 ${fmt(r.minimumToHoldNormalized * this.recordContext.totalTravelMm / 1000, 2)} mm 이상, 목표 해제까지 약 ${fmt(r.mm, 2)} mm. 자동 적용하지 않습니다.` : r.note);
+        (r.compatible ? `복귀 RT 참고 범위: 유지하려면 ${fmt(r.minimumToHoldNormalized * this.recordContext.totalTravelMm / TRAVEL_MAX, 2)} mm 이상, 목표 해제까지 약 ${fmt(r.mm, 2)} mm. 자동 적용하지 않습니다.` : r.note);
     } else $("rhythmHoldSummary").textContent = `목표 ${s.matchedTargets}회 대응 · 추가 판정 ${s.extraEdges.length}회. 목표 깊이는 최초 작동점의 참고값이며 RT 재입력과 다를 수 있습니다.`;
     const fragment = document.createDocumentFragment();
     for (const match of s.matches) {
@@ -314,7 +315,7 @@ export class RhythmLab {
     const capture = this.active ? this.capture : this.result, samples = capture?.samples ?? [];
     const schedule = capture?.schedule, total = this.recordContext?.totalTravelMm ?? 4;
     const L = 48, R = w - 12, T = 25, B = h - 54, end = this.viewEnd, begin = end - 8000;
-    const x = (t) => L + (t - begin) / 8000 * (R - L), y = (v) => B - v / 1000 * (B - T);
+    const x = (t) => L + (t - begin) / 8000 * (R - L), y = (v) => B - v / TRAVEL_MAX * (B - T);
     c.strokeStyle = "#293443"; c.fillStyle = "#8792a4";
     for (let i = 0; i <= 4; i++) {
       const py = y(i * 250); c.beginPath(); c.moveTo(L, py); c.lineTo(R, py); c.stroke();
@@ -326,7 +327,7 @@ export class RhythmLab {
     c.save(); c.beginPath(); c.rect(L, T - 16, R - L, h - T - 2); c.clip();
     const config = this.active ? this.capture?.keyConfig : this.result?.keyConfig;
     if (config) {
-      c.fillStyle = "#b4ed7812"; c.fillRect(L, y(1000), R - L, y(1000 - (config.bottom_deadzone ?? 0)) - y(1000));
+      c.fillStyle = "#b4ed7812"; c.fillRect(L, y(TRAVEL_MAX), R - L, y(TRAVEL_MAX - (config.bottom_deadzone ?? 0)) - y(TRAVEL_MAX));
       c.fillStyle = "#8594a912"; c.fillRect(L, y(config.top_deadzone), R - L, y(0) - y(config.top_deadzone));
       c.strokeStyle = "#b4ed7866"; c.setLineDash([5, 5]); c.beginPath(); c.moveTo(L, y(config.actuation)); c.lineTo(R, y(config.actuation)); c.stroke(); c.setLineDash([]);
     }

@@ -5,8 +5,9 @@ import { SampledRT } from "../web/rhythm-analysis.mjs";
 import { rawToTravel } from "../web/hall-curve.mjs";
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
+// Travel depths and thresholds are 0..10000 units (1/10000 of the stroke).
 const baseConfig = { key: 0, flags: 7, released: 3500, pressed: 500,
-  actuation: 180, rt_press: 30, rt_release: 40, top_deadzone: 15,
+  actuation: 1800, rt_press: 300, rt_release: 400, top_deadzone: 150,
   bottom_deadzone: 0, noise_deadband: 5, curve_id: 0 };
 function rawAtDepth(depth, config) {
   let low = 0, high = Math.abs(config.pressed - config.released);
@@ -29,17 +30,17 @@ function phase(config, duration, depth) {
 }
 function inputFor(config = baseConfig, preference = "balanced") {
   return { keyConfig: clone(config), totalTravelMm: 3.4, preference, phases: {
-    released: phase(config, 3000, (t) => t % 30 / 10),
-    resting: phase(config, 3000, (t) => 8 + t % 50 / 10),
+    released: phase(config, 3000, (t) => t % 30),
+    resting: phase(config, 3000, (t) => 80 + t % 50),
     tapping: phase(config, 5000, (t) => {
       if (t < 100 || t > 4900) return 0;
       const local = (t - 100) % 600;
-      if (local < 100) return local * 8;
-      if (local < 180) return 800;
-      if (local < 330) return Math.max(0, 800 - (local - 180) * 800 / 150);
+      if (local < 100) return local * 80;
+      if (local < 180) return 8000;
+      if (local < 330) return Math.max(0, 8000 - (local - 180) * 8000 / 150);
       return 0;
     }),
-    holding: phase(config, 5000, (t) => 900 - (t % 600) / 6),
+    holding: phase(config, 5000, (t) => 9000 - (t % 600) * 10 / 6),
   } };
 }
 const validCases = [
@@ -80,10 +81,10 @@ rejected("duplicate-sequence", (input) => { input.phases.resting[10].sequence = 
 rejected("sample-gap", (input) => { for (const row of input.phases.tapping.slice(20)) row.timeMs += 110; });
 rejected("stale-row", (input) => { input.phases.holding[100].fresh = false; });
 rejected("reversed-time", (input) => { input.phases.released[30].timeMs = -10; });
-rejected("wrong-release-pose", (input) => { input.phases.released = phase(input.keyConfig, 3000, () => 200); });
-rejected("wrong-hold-pose", (input) => { input.phases.holding = phase(input.keyConfig, 3000, () => 10); });
+rejected("wrong-release-pose", (input) => { input.phases.released = phase(input.keyConfig, 3000, () => 2000); });
+rejected("wrong-hold-pose", (input) => { input.phases.holding = phase(input.keyConfig, 3000, () => 100); });
 rejected("too-few-taps", (input) => { input.phases.tapping = input.phases.tapping.slice(0, 251); });
-rejected("no-taps", (input) => { input.phases.tapping = phase(input.keyConfig, 3000, () => 700); });
+rejected("no-taps", (input) => { input.phases.tapping = phase(input.keyConfig, 3000, () => 7000); });
 rejected("uncalibrated-key", (input) => { input.keyConfig.flags &= ~4; });
 rejected("disabled-key", (input) => { input.keyConfig.flags &= ~1; });
 rejected("mismatched-key", (input) => { input.key = 1; });

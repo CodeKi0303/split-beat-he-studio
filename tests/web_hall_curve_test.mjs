@@ -9,25 +9,25 @@ import { makeUiProfile, parseUiProfile } from "../web/ui-profile.mjs";
 import { proposePerformanceSettings, applyPerformanceSettings } from "../web/performance-settings.mjs";
 
 const key = keyRecord({ key: 0, flags: 7, released: 1000, pressed: 3000,
-  actuation: 200, rt_press: 100, rt_release: 100, top_deadzone: 20,
+  actuation: 2000, rt_press: 1000, rt_release: 1000, top_deadzone: 200,
   noise_deadband: 0, curve_id: 1 });
 assert.equal(rawToTravel(1000, key), 0);
-assert.equal(rawToTravel(3000, key), 1000);
+assert.equal(rawToTravel(3000, key), 10000);
 assert.equal(rawToTravel(0, key), 0);
-assert.equal(rawToTravel(4095, key), 1000);
-assert.ok(rawToTravel(1400, key) > 400, "20% raw span is not 20% travel");
+assert.equal(rawToTravel(4095, key), 10000);
+assert.ok(rawToTravel(1400, key) > 4000, "20% raw span is not 20% travel");
 const reversed = { ...key, released: 3000, pressed: 1000 };
 let previous = -1;
 for (let raw = 1000; raw <= 3000; raw++) {
   const value = rawToTravel(raw, key);
-  assert.ok(value >= previous && value <= 1000);
+  assert.ok(value >= previous && value <= 10000);
   assert.equal(value, rawToTravel(4000 - raw, reversed));
   previous = value;
 }
 assert.equal(rawToEstimatedMm(3000, key, 3.4), 3.4);
 assert.ok(Math.abs(rawToEstimatedMm(1800, key, 4) /
   rawToEstimatedMm(1800, key, 3.4) - 4 / 3.4) < 1e-12);
-assert.equal(rawToTravel(1400, { ...key, curve_id: 0 }), 200);
+assert.equal(rawToTravel(1400, { ...key, curve_id: 0 }), 2000);
 assert.equal(rawToEstimatedMm(1401, { ...key, curve_id: 0 }, 4), .802);
 const samples = [1400, 1800, 2200].map((raw, time) => ({raw, time}));
 assert.deepEqual(summarizeTravel(samples, key, 3.4),

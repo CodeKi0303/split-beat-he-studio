@@ -12,7 +12,7 @@ let browser;
     window.__physicalHidAttempts = 0;
     const forbidden = () => { window.__physicalHidAttempts++; throw Error("Physical HID forbidden"); };
     Object.defineProperty(navigator, "hid", { configurable: true, value: { requestDevice: forbidden, getDevices: forbidden } });
-    window.__statusTravelTest = { travel: 50, raw: 1234 };
+    window.__statusTravelTest = { travel: 500, raw: 1234 };
     window.__demoCommands = [];
   });
   await context.route("**/demo.mjs*", async route => {
@@ -51,7 +51,7 @@ DemoTransport.prototype.command = function(op, payload) {
   const fixture = await exportJson("export");
   fixture.ui.totalTravelMm.fill(3.4);
   fixture.device.keys.forEach(key => Object.assign(key, { flags: 7, released: 1000, pressed: 3000,
-    actuation: 200, rt_press: 100, rt_release: 100, top_deadzone: 88, bottom_deadzone: 88, noise_deadband: 0 }));
+    actuation: 2000, rt_press: 1000, rt_release: 1000, top_deadzone: 880, bottom_deadzone: 880, noise_deadband: 0 }));
   // Include RT-off compatibility on the right half.
   fixture.device.keys[7].flags = 5;
   await page.locator("#profileFile").setInputFiles({ name: "recognized-travel-demo.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(fixture)) });
@@ -59,17 +59,18 @@ DemoTransport.prototype.command = function(op, payload) {
   await idle();
   await nav("performance");
   await page.locator("#key-0").click();
-  for (const [input, expected] of [[87,0],[88,0],[89,89],[500,500],[911,911],[912,1000],[913,1000],[1000,1000]]) {
+  // STATUS travel is 0..10000 (firmware 0.3.43+); live mm shows 0.001 mm, key labels 0.01 mm.
+  for (const [input, expected] of [[879,0],[880,0],[881,881],[5000,5000],[9119,9119],[9120,10000],[9121,10000],[10000,10000]]) {
     await setTravel(input);
-    const mm = (expected * 3.4 / 1000).toFixed(2) + " mm";
-    await page.waitForFunction(({ mm, expected }) => document.querySelector("#liveTravel").textContent === mm
-      && Number.parseFloat(document.querySelector("#key-7 .bar").style.width) === expected / 10, { mm, expected });
+    const live = (expected * 3.4 / 10000).toFixed(3) + " mm", label = (expected * 3.4 / 10000).toFixed(2) + " mm";
+    await page.waitForFunction(({ live, expected }) => document.querySelector("#liveTravel").textContent === live
+      && Math.abs(Number.parseFloat(document.querySelector("#key-7 .bar").style.width) - expected / 100) < 1e-8, { live, expected });
     for (const id of [0, 7]) {
-      assert.equal(await page.locator(`#key-${id} .travel`).textContent(), mm);
-      assert.equal(await page.locator(`#key-${id} .bar`).evaluate(bar => Number.parseFloat(bar.style.width)), expected / 10);
+      assert.equal(await page.locator(`#key-${id} .travel`).textContent(), label);
+      assert.ok(Math.abs(await page.locator(`#key-${id} .bar`).evaluate(bar => Number.parseFloat(bar.style.width)) - expected / 100) < 1e-8);
       assert.equal(await page.locator(`#key-${id} .raw`).textContent(), "1234");
     }
-    assert.ok(Math.abs(await page.locator("#travelFill").evaluate(bar => Number.parseFloat(bar.style.height)) - expected / 10) < 1e-8);
+    assert.ok(Math.abs(await page.locator("#travelFill").evaluate(bar => Number.parseFloat(bar.style.height)) - expected / 100) < 1e-8);
   }
   fs.mkdirSync("build", { recursive: true });
   await page.screenshot({ path: "build/web-recognized-travel-bottom.png", fullPage: true });
@@ -80,7 +81,7 @@ DemoTransport.prototype.command = function(op, payload) {
   await page.locator("#diagnosticAdc").check();
   await page.waitForFunction(() => document.querySelector("#mean").textContent === "1234.00");
   await page.locator("#diagnosticAdc").uncheck();
-  await setTravel(50);
+  await setTravel(500);
   await page.locator("#clearStats").click();
   await page.waitForFunction(() => document.querySelector("#mean").textContent === "0.0000");
   await page.screenshot({ path: "build/web-recognized-travel-zero.png", fullPage: true });
@@ -89,13 +90,13 @@ DemoTransport.prototype.command = function(op, payload) {
   await page.locator("#rhythmStart").click();
   await page.waitForFunction(() => document.querySelector("#rhythmLive").textContent.startsWith("0.00 mm"));
   await page.waitForTimeout(650); // Retain visible samples after the scheduled audio origin.
-  await setTravel(950);
+  await setTravel(9500);
   await page.waitForFunction(() => document.querySelector("#rhythmLive").textContent.startsWith("3.40 mm"));
   await page.waitForTimeout(650);
   await page.locator("#rhythmStop").click();
   const capture = await exportJson("rhythmExport");
-  assert.ok(capture.samples.some(s => s.travel === 50 && s.recognizedTravel === 0 && s.recognizedMm === 0));
-  assert.ok(capture.samples.some(s => s.travel === 950 && s.recognizedTravel === 1000 && s.recognizedMm === 3.4));
+  assert.ok(capture.samples.some(s => s.travel === 500 && s.recognizedTravel === 0 && s.recognizedMm === 0));
+  assert.ok(capture.samples.some(s => s.travel === 9500 && s.recognizedTravel === 10000 && s.recognizedMm === 3.4));
   assert.ok(capture.samples.every(s => s.raw === 1234));
   assert.match(capture.travelSources.travel, /Unmodified device STATUS/);
   await page.screenshot({ path: "build/web-recognized-travel-rhythm.png", fullPage: true });

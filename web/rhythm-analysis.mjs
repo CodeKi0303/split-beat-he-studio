@@ -3,6 +3,7 @@
  * Observed edges are brackets between polls, not hardware event timestamps.
  */
 import { recognizedTravel, recognizedTravelToMm } from "./recognized-travel.mjs?v=studio-recognized-travel1";
+import { TRAVEL_MAX } from "./protocol.mjs?v=studio-retrigger1";
 const finite = (v, lo, hi, label) => {
   if (typeof v !== "number" || !Number.isFinite(v) || v < lo || v > hi)
     throw Error(`${label}: ${lo}–${hi} 범위의 수치가 필요합니다.`);
@@ -74,9 +75,9 @@ export class SampledRT {
     const c = this.config;
     int(c.flags, 0, 15, "키 flags");
     int(c.released, 0, 4095, "해제 ADC"); int(c.pressed, 0, 4095, "눌림 ADC");
-    int(c.actuation, 1, 1000, "작동점"); int(c.rt_press, 1, 1000, "눌림 RT");
-    int(c.rt_release, 1, 1000, "복귀 RT"); int(c.top_deadzone, 0, c.actuation - 1, "상단 데드존");
-    int(c.bottom_deadzone, 0, 1000 - c.actuation, "하단 데드존");
+    int(c.actuation, 1, TRAVEL_MAX, "작동점"); int(c.rt_press, 1, TRAVEL_MAX, "눌림 RT");
+    int(c.rt_release, 1, TRAVEL_MAX, "복귀 RT"); int(c.top_deadzone, 0, c.actuation - 1, "상단 데드존");
+    int(c.bottom_deadzone, 0, TRAVEL_MAX - c.actuation, "하단 데드존");
     int(c.noise_deadband, 0, 100, "센서 데드밴드");
     validateCurveId(c.curve_id ?? 0);
     this.valid = Boolean(c.flags & 4) && Math.abs(c.pressed - c.released) >= 128;
@@ -95,8 +96,8 @@ export class SampledRT {
       this.pressed = false; this.rapid = false; this.extreme = travel;
     } else if (!(c.flags & 2)) {
       this.pressed = travel >= c.actuation; this.rapid = false; this.extreme = travel;
-    } else if (c.bottom_deadzone && travel >= 1000 - c.bottom_deadzone) {
-      this.pressed = true; this.rapid = true; this.extreme = 1000 - c.bottom_deadzone;
+    } else if (c.bottom_deadzone && travel >= TRAVEL_MAX - c.bottom_deadzone) {
+      this.pressed = true; this.rapid = true; this.extreme = TRAVEL_MAX - c.bottom_deadzone;
     } else if (!this.rapid) {
       if (travel >= c.actuation) { this.pressed = true; this.rapid = true; this.extreme = travel; }
     } else if (this.pressed) {
@@ -107,7 +108,7 @@ export class SampledRT {
       if (travel - this.extreme >= c.rt_press) { this.pressed = true; this.extreme = travel; }
     }
     const canRetrigger = (c.flags & 10) === 10 && before && this.pressed && travel > c.top_deadzone &&
-      !(c.bottom_deadzone && travel >= 1000 - c.bottom_deadzone);
+      !(c.bottom_deadzone && travel >= TRAVEL_MAX - c.bottom_deadzone);
     if (!canRetrigger) this.retriggerTrough = null;
     else {
       if (travel < previousTravel && this.retriggerTrough === null) this.retriggerTrough = travel;
@@ -129,13 +130,13 @@ export function depthAt(samples, timeMs, maxGapMs = 80, totalTravelMm = 4) {
   const index = samples.findIndex((s) => s.timeMs >= timeMs);
   if (index < 0) return null;
   const b = samples[index];
-  if (b.timeMs === timeMs) return { normalized: b.travel, mm: b.travel * totalTravelMm / 1000,
+  if (b.timeMs === timeMs) return { normalized: b.travel, mm: b.travel * totalTravelMm / TRAVEL_MAX,
     uncertaintyMs: b.uncertaintyMs, bracketMs: [b.lowerMs, b.upperMs], interpolated: false };
   if (!index) return null;
   const a = samples[index - 1], delta = b.timeMs - a.timeMs;
   if (a.segment !== b.segment || delta > maxGapMs || delta <= 0) return null;
   const normalized = a.travel + (b.travel - a.travel) * (timeMs - a.timeMs) / delta;
-  return { normalized, mm: normalized * totalTravelMm / 1000,
+  return { normalized, mm: normalized * totalTravelMm / TRAVEL_MAX,
     uncertaintyMs: Math.max(timeMs - a.lowerMs, b.upperMs - timeMs),
     bracketMs: [a.lowerMs, b.upperMs], interpolated: true };
 }
@@ -233,7 +234,7 @@ export class RhythmCapture {
       this.counts.invalid++; this.breakSegment("clock_regression", Number.isFinite(timeMs) ? timeMs : null); return false;
     }
     if (value.fresh !== true || value.calibrationState && value.calibrationState !== 0
-      || !Number.isInteger(raw) || raw < 0 || raw > 4095 || !Number.isInteger(travel) || travel < 0 || travel > 1000
+      || !Number.isInteger(raw) || raw < 0 || raw > 4095 || !Number.isInteger(travel) || travel < 0 || travel > TRAVEL_MAX
       || typeof pressed !== "boolean" || !Number.isInteger(sequence) || sequence < 0 || sequence > 0xffffffff) {
       this.counts.invalid++; this.breakSegment("invalid_or_stale", timeMs); return false;
     }
@@ -263,7 +264,7 @@ export class RhythmCapture {
     // the transaction duration includes the earliest request-age estimate.
     const lowerMs = Math.min(timeMs - (response - request) / 2, request), upperMs = Math.max(timeMs, response);
     const simulated = this.replay.step(raw);
-    const sample = { timeMs, raw, travel, mm: travel * this.totalTravelMm / 1000,
+    const sample = { timeMs, raw, travel, mm: travel * this.totalTravelMm / TRAVEL_MAX,
       recognizedTravel: recognizedTravel(travel, this.keyConfig),
       recognizedMm: recognizedTravelToMm(travel, this.keyConfig, this.totalTravelMm),
       pressed, sequence, segment: this.segment, lowerMs, upperMs,
@@ -288,7 +289,7 @@ export class RhythmCapture {
       const interior = rows.filter((s) => s.timeMs >= begin + windowMs && s.timeMs <= end - windowMs);
       const dropEdges = this.edges.filter((e) => e.type === "release" && e.timeMs > begin + windowMs && e.timeMs < end - windowMs);
       let peak = null, maxDrop = 0;
-      const ceiling = this.keyConfig.bottom_deadzone ? 1000 - this.keyConfig.bottom_deadzone : 1000;
+      const ceiling = this.keyConfig.bottom_deadzone ? TRAVEL_MAX - this.keyConfig.bottom_deadzone : TRAVEL_MAX;
       for (const row of interior) {
         peak = Math.max(peak ?? Math.min(row.travel, ceiling), Math.min(row.travel, ceiling));
         maxDrop = Math.max(maxDrop, peak - row.travel);
@@ -307,14 +308,14 @@ export class RhythmCapture {
     });
     const validPressDepths = matches.filter((m) => m.type === "press" && m.matched && m.depthAtTarget
       && m.depthAtTarget.uncertaintyMs <= this.maxGapMs)
-      .map((m) => m.depthAtTarget.normalized).filter((v) => v > this.keyConfig.top_deadzone && v <= 1000 - (this.keyConfig.bottom_deadzone ?? 0));
+      .map((m) => m.depthAtTarget.normalized).filter((v) => v > this.keyConfig.top_deadzone && v <= TRAVEL_MAX - (this.keyConfig.bottom_deadzone ?? 0));
     const depthCandidate = validPressDepths.length >= 3 ? median(validPressDepths) : null;
     const coveredHolds = holds.filter((h) => h.continuousCoverage && h.interiorSamples > 1
       && h.unpressedInteriorSamples < h.interiorSamples && h.targetReleaseDepth.uncertaintyMs <= this.maxGapMs);
     const minHold = coveredHolds.length ? Math.floor(Math.max(...coveredHolds.map((h) => h.maxHoldRetreatNormalized))) + 1 : null;
     const releaseCandidates = coveredHolds.map((h) => h.desiredReleaseRetreatNormalized).filter((x) => x !== null && x >= 1);
     const desiredRelease = median(releaseCandidates);
-    const compatible = Boolean(this.keyConfig.flags & 2) && coveredHolds.length >= 3 && minHold !== null && desiredRelease !== null && minHold <= desiredRelease && minHold <= 1000;
+    const compatible = Boolean(this.keyConfig.flags & 2) && coveredHolds.length >= 3 && minHold !== null && desiredRelease !== null && minHold <= desiredRelease && minHold <= TRAVEL_MAX;
     const sampleIntervals = [], allIntervals = [];
     for (let i = 1; i < this.samples.length; i++) {
       const interval = this.samples[i].timeMs - this.samples[i - 1].timeMs;
@@ -339,11 +340,11 @@ export class RhythmCapture {
         note: "관찰한 샘플만 재생한 RT 모의 판정입니다. 전체 ADC 스캔의 실제 판정과 다를 수 있습니다." },
       recommendation: { applied: false,
         actuation: { sampleCount: validPressDepths.length, normalized: depthCandidate === null ? null : Math.round(depthCandidate),
-          mm: depthCandidate === null ? null : depthCandidate * this.totalTravelMm / 1000,
+          mm: depthCandidate === null ? null : depthCandidate * this.totalTravelMm / TRAVEL_MAX,
           note: "관찰이 충분한 눌림 3회 이상에서 목표 시점 깊이의 중앙값입니다. RT 재입력에는 최초 작동점만으로 설명되지 않습니다." },
         rtRelease: { minimumToHoldNormalized: minHold, desiredAtReleaseNormalized: desiredRelease,
           compatible, normalized: compatible ? Math.round(desiredRelease) : null,
-          mm: compatible ? desiredRelease * this.totalTravelMm / 1000 : null,
+          mm: compatible ? desiredRelease * this.totalTravelMm / TRAVEL_MAX : null,
           note: !(this.keyConfig.flags & 2) ? "현재 키의 RT가 꺼져 있어 작동점 기준으로 판정합니다. 복귀 RT 후보는 RT를 켠 측정에서 확인하세요."
             : compatible ? "유지 중 가장 큰 복귀량보다 크게, 목표 해제 시점의 복귀량에 맞춘 후보입니다. 자동 적용하지 않습니다."
             : "유효한 유지·해제 관찰 3회가 필요하거나 두 조건을 동시에 만족하는 복귀 RT 범위가 없습니다." },

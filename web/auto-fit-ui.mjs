@@ -1,4 +1,5 @@
 import { analyzeAutoFit, evaluateAutoFit } from "./auto-fit.mjs?v=studio-retrigger1";
+import { TRAVEL_MAX } from "./protocol.mjs?v=studio-retrigger1";
 
 const $ = (id) => document.getElementById(id);
 const clone = (value) => structuredClone(value);
@@ -118,7 +119,7 @@ export class AutoFitWizard {
       enabled.textContent = `래피드 트리거 ${candidate.config.flags & 2 ? "켜짐" : "꺼짐"}`; list.append(enabled);
       for (const [field, label] of Object.entries(settingNames)) {
         const item = document.createElement("div");
-        item.textContent = `${label} ${(candidate.config[field] * this.source.totalTravelMm / 1000).toFixed(2)} mm`;
+        item.textContent = `${label} ${(candidate.config[field] * this.source.totalTravelMm / TRAVEL_MAX).toFixed(3)} mm`;
         list.append(item);
       }
     }

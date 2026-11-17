@@ -144,8 +144,8 @@ const { installStudioTestHid } = require("./studio-browser-hid.cjs");
     await page.locator("#applyKey").click();
     await page.waitForFunction(() => document.querySelector("#notice").textContent.includes("Hall 설정 RAM 적용 완료"));
     await idle();
-    expected.keys[0].actuation = Math.round(1.35 / 4 * 1000);
-    expected.keys[0].rt_press = Math.round(0.17 / 4 * 1000);
+    expected.keys[0].actuation = Math.round(1.35 / 4 * 10000);
+    expected.keys[0].rt_press = Math.round(0.17 / 4 * 10000);
     assert.deepEqual((await snapshot()).profile, expected, "performance apply retains newly applied sensor noise");
     assertSafe(await snapshot());
 

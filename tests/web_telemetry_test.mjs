@@ -17,10 +17,14 @@ const status = (sequence, value = 2000, overrides = {}) => ({
   ...overrides,
 });
 const config = { flags: 7, released: 2000, pressed: 3000 };
-assert.equal(normalizedToMm(250, 4), 1);
-assert.equal(mmToNormalized(0.01, 4), 3);
+assert.equal(normalizedToMm(2500, 4), 1);
+assert.equal(mmToNormalized(0.01, 4), 25);
+assert.equal(mmToNormalized(0.001, 4), 3); // 2.5 units: one 0.001 mm step stays distinct
+assert.notEqual(mmToNormalized(0.801, 3.4), mmToNormalized(0.8, 3.4));
+for (const mm of [0.001, 0.123, 1.234, 3.399])
+  assert.equal(normalizedToMm(mmToNormalized(mm, 3.4), 3.4).toFixed(3), mm.toFixed(3));
 assert.ok(
-  Math.abs(normalizedToMm(mmToNormalized(1.23, 4), 4) - 1.23) <= 0.002 + 1e-12,
+  Math.abs(normalizedToMm(mmToNormalized(1.23, 4), 4) - 1.23) <= 0.0002 + 1e-12,
 );
 assert.throws(() => mmToNormalized(-0.01, 4));
 assert.throws(() => normalizedToMm(100, 0));

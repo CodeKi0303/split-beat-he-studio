@@ -45,7 +45,7 @@ let browser;
   const calibrated = structuredClone(initial);
   for (const key of calibrated.device.keys)
     Object.assign(key, { flags: 7, released: 1000, pressed: 3000,
-      actuation: 200, rt_press: 100, rt_release: 100, top_deadzone: 20, bottom_deadzone: 0 });
+      actuation: 2000, rt_press: 1000, rt_release: 1000, top_deadzone: 200, bottom_deadzone: 0 });
   calibrated.ui.totalTravelMm.fill(4);
   await page.locator("#profileFile").setInputFiles({ name: "rhythm-demo-profile.json",
     mimeType: "application/json", buffer: Buffer.from(JSON.stringify(calibrated)) });
@@ -128,9 +128,9 @@ let browser;
   const hold = await exported("rhythmExport");
   assert.equal(hold.completed, true, hold.reason);
   assert.ok(hold.summary.holds.length > 0);
-  assert.ok(hold.samples.some((sample) => sample.travel >= 840 && sample.travel <= 860 && sample.pressed),
+  assert.ok(hold.samples.some((sample) => sample.travel >= 8400 && sample.travel <= 8600 && sample.pressed),
     "small simulated retreat keeps the RT press held");
-  assert.ok(hold.samples.some((sample) => sample.travel >= 640 && sample.travel <= 660 && !sample.pressed),
+  assert.ok(hold.samples.some((sample) => sample.travel >= 6400 && sample.travel <= 6600 && !sample.pressed),
     "larger simulated retreat produces an RT release");
   assert.ok(hold.summary.holds.some((note) => note.earlyReleaseCount >= 1),
     "sustained-note analysis reports the intentionally early release");

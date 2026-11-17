@@ -4,9 +4,10 @@ import { OP, encodeBinding, encodeKey, decodeStatus } from "../web/protocol.mjs"
 
 const cfg = {
   key: 0, flags: 7, released: 1000, pressed: 3000,
-  actuation: 200, rt_press: 100, rt_release: 100,
-  top_deadzone: 20, bottom_deadzone: 0, noise_deadband: 5,
+  actuation: 2000, rt_press: 1000, rt_release: 1000,
+  top_deadzone: 200, bottom_deadzone: 0, noise_deadband: 5,
 };
+// n is an ADC offset on a 2000-code span: travel is 10 * n (0..10000 units).
 const raw = (n) => 1000 + n * 2;
 const step = (state, n, key = cfg) => demoRTStep(state, key, raw(n));
 
@@ -25,12 +26,12 @@ demoRTStep(s, cfg, 1004);
 assert.equal(s.filtered, 1000);
 demoRTStep(s, cfg, 1005);
 assert.equal(s.filtered, 1005);
-assert.equal(s.travel, 3);
+assert.equal(s.travel, 25);
 
 // Bottom-zone dwell remains pressed. Leaving it must traverse release RT
 // relative to the lower-zone boundary rather than a hidden bottom extreme.
 s = demoRTState();
-const bottom = { ...cfg, bottom_deadzone: 200 };
+const bottom = { ...cfg, bottom_deadzone: 2000 };
 for (const [travel, pressed] of [[0,false],[1000,true],[950,true],[800,true],[750,true],[700,false]]) {
   step(s, travel, bottom);
   assert.equal(s.pressed, pressed, `bottom travel=${travel}`);
@@ -40,13 +41,13 @@ for (const [travel, pressed] of [[0,false],[1000,true],[950,true],[800,true],[75
 s = demoRTState();
 const reverse = { ...cfg, released: 3000, pressed: 1000 };
 demoRTStep(s, reverse, 2500);
-assert.equal(s.travel, 250);
+assert.equal(s.travel, 2500);
 assert.equal(s.pressed, true);
 demoRTStep(s, { ...reverse, flags: 6 }, 2000);
-assert.equal(s.travel, 500);
+assert.equal(s.travel, 5000);
 assert.equal(s.pressed, false);
 demoRTStep(s, { ...cfg, flags: 3 }, 3000);
-assert.equal(s.travel, 1000);
+assert.equal(s.travel, 10000);
 assert.equal(s.pressed, false);
 demoRTStep(s, { ...cfg, flags: 3, released: 0, pressed: 0 }, 3000);
 assert.equal(s.travel, 0);
@@ -69,7 +70,7 @@ now += 10;
 let report = status();
 assert.equal(report.output_enabled, false);
 assert.equal(report.pressed_mask & 1, 1);
-assert.ok(Math.abs(report.travel[0] - 700) <= 2);
+assert.ok(Math.abs(report.travel[0] - 7000) <= 20);
 t.pose[0] = 500;
 now += 10;
 assert.equal(status().pressed_mask & 1, 0);

@@ -1,6 +1,9 @@
 import {
   CAP_BOTTOM_DEADZONE,
+  CAP_FINE_TRAVEL,
   CAP_HALL_CURVE,
+  LEGACY_TRAVEL_SCALE,
+  TRAVEL_MAX,
   keyRecord,
   requireKeyCapability,
   validateProfile,
@@ -73,7 +76,7 @@ export function proposePerformanceSettings(
     if (distanceFields.some((field) => Object.hasOwn(draft, field)) && !(before.flags & 4))
       throw Error(`Hall ${id}: 먼저 캘리브레이션을 완료하세요.`);
     const distance = Object.fromEntries(distanceFields.map((field) => [field,
-      Object.hasOwn(draft, field) ? draft[field] : (before[field] ?? 0) * total / 1000,
+      Object.hasOwn(draft, field) ? draft[field] : (before[field] ?? 0) * total / TRAVEL_MAX,
     ]));
     if (distance.top_deadzone >= distance.actuation ||
         distance.actuation + distance.bottom_deadzone > total + 1e-9)
@@ -82,7 +85,11 @@ export function proposePerformanceSettings(
       if (!Object.hasOwn(draft, field)) continue;
       if (draft[field] > total)
         throw Error(`Hall ${id}: ${field}가 총 이동거리 ${total.toFixed(2)} mm를 넘습니다.`);
-      key[field] = mmToNormalized(draft[field], total);
+      // 0.3.43+ stores 1/10000 of the stroke (0.001 mm entry). Older firmware
+      // stores 1/1000, so the same mm rounds to its coarser step instead.
+      const step = capabilities & CAP_FINE_TRAVEL ? 1 : LEGACY_TRAVEL_SCALE;
+      mmToNormalized(draft[field], total);
+      key[field] = Math.round(draft[field] * TRAVEL_MAX / total / step) * step;
     }
     if (Object.hasOwn(draft, "noise_deadband")) key.noise_deadband = draft.noise_deadband;
     if (Object.hasOwn(draft, "curve_id")) key.curve_id = draft.curve_id;
