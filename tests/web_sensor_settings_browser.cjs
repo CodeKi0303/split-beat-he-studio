@@ -167,15 +167,24 @@ const { installStudioTestHid } = require("./studio-browser-hid.cjs");
     await page.locator("#adcWindow").selectOption("4");
     await clearCommands();
     await page.locator("#applyAdcTuning").click();
-    await page.waitForFunction(() => document.querySelector("#notice").textContent.includes("ADC 설정 적용 완료"));
+    // The output the user had on is restored after the write; wait for that last step.
+    await page.waitForFunction(() => document.querySelector("#log").textContent.includes("ADC 설정 적용 완료") &&
+      document.querySelector("#log").textContent.includes("작업 전 상태대로 키 출력을 다시 켰습니다."));
     await idle();
     const adcState = await snapshot();
     assert.deepEqual(adcState.profile, expected, "global ADC tuning preserves per-key profile");
-    assertSafe(adcState);
     const offIndex = adcState.commands.findIndex((call) => call.op === 6 && call.payload[0] === 0);
     const writeIndex = adcState.commands.findIndex((call) => call.op === 0x49 && call.payload.length === 5);
+    const onIndex = adcState.commands.findIndex((call) => call.op === 6 && call.payload[0] === 1);
     assert(offIndex >= 0 && writeIndex > offIndex, "verified output OFF precedes paired ADC write");
     assert.equal(adcState.commands[writeIndex].enabled, false);
+    assert(onIndex > writeIndex && adcState.enabled === true, "the user's output ON is restored after the write");
+    assertSafe({ ...adcState, enabled: false, commands: adcState.commands.slice(0, onIndex) });
+    // Return to the earlier output-off state for the remaining checks.
+    await page.locator("#outputOff").click();
+    await page.waitForFunction(() => document.querySelector("#outputState").textContent === "출력 꺼짐");
+    await idle();
+    await clearCommands(); // The intentional restore above is not an automatic enable.
     assert.equal(await page.locator("#interferenceRows tr").count(), 0, "changing ADC settings clears measurements made with old settings");
     assert((await page.locator("#measureState").textContent()).startsWith("측정 전"));
 

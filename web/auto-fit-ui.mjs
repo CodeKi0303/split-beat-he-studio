@@ -132,7 +132,7 @@ export class AutoFitWizard {
     const generation = ++this.generation;
     this.active = this.starting = true;
     this.rows = []; this.result = null; this.retestSummary = "";
-    $("autoFitState").textContent = "키 출력을 끄고 센서를 확인합니다…";
+    $("autoFitState").textContent = "측정하는 동안 키 출력을 끄고 센서를 확인합니다…";
     this.onChange();
     try {
       const context = await this.prepare();

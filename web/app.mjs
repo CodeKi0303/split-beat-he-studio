@@ -87,6 +87,11 @@ const telemetry = new TelemetryStore({ windowMs: 60000, maxSamples: 3000 }),
 const batch = new BatchCalibration();
 let adcComparison = [], lastAdcComparison = -Infinity;
 let adcApplied = [null, null];
+// Key output the user chose (출력 켜기/끄기, saved state, or state found on connect).
+// Firmware turns output off on every configuration write, calibration capture and
+// ADC change; Studio never turns it off on its own and restores this choice after
+// its operations and measurements finish.
+let wantOutput = false, restorePending = false, lastOperationEnd = -Infinity;
 const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TUNING);
 const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
 const comparingAdc = () => adcTuningSupported() && selected < 7 && $("diagnosticAdcCompare").checked;
@@ -536,7 +541,7 @@ $("applyNoise").onclick = () => {
     measure.reset(); renderMeasurement();
     renderNoiseSettings();
     if (!outcome.complete) throw Error(outcome.error || "노이즈 설정의 적용값을 확인하지 못했습니다.");
-    log(`${ids.length}개 키 노이즈 설정 RAM 적용 확인 · 출력 꺼짐 · 영구 저장은 별도입니다.`);
+    log(`${ids.length}개 키 노이즈 설정 RAM 적용 확인 · 영구 저장은 별도입니다.`);
   });
 };
 $("curveId").onchange = () => markPerformanceDirty("curveId");
@@ -844,7 +849,7 @@ $("applyAdcTuning").onclick = () => action(async () => {
   adcComparison = [];
   showAdcTuning(applied, true);
   infoView(await client.info());
-}, "ADC 설정 적용 완료 · 키 출력 꺼짐");
+}, "ADC 설정 적용 완료");
 function hallTravelLabel(id) {
   const status = latest[INPUTS[id].side];
   if (!status) return "Hall";
@@ -915,6 +920,11 @@ function renderStatus(side, s) {
 }
 async function poll() {
   if (!client || !connected || busy || polling) return;
+  if (restorePending && !outputHeldOff()) {
+    polling = true;
+    try { await restoreOutput(); } finally { polling = false; }
+    return;
+  }
   const capture = autoFit?.active ? autoFit : rhythm;
   const fast = capture?.active && !capture.starting;
   if (!fast && performance.now() - lastPollAt < 48) return;
@@ -934,6 +944,11 @@ async function poll() {
         rhythm?.ingest(side, s, requestTime, responseTime);
         autoFit?.ingest(side, s, requestTime, responseTime);
         latest[side] = s;
+        // Outside Studio's own operations, follow the keyboard's real output state
+        // (boot restore, other tools, firmware safety stops) instead of fighting it.
+        // A reply to a request sent before Studio's last operation ended is stale.
+        if (side === 0 && !busy && !restorePending && !outputHeldOff() && requestTime > lastOperationEnd)
+          wantOutput = s.output_enabled;
         if (!fast || responseTime - lastStatusPaint[side] >= 50) {
           lastStatusPaint[side] = responseTime;
           renderStatus(side, s);
@@ -965,6 +980,32 @@ async function poll() {
     polling = false;
   }
 }
+function outputHeldOff() {
+  return !!(rhythm?.active || autoFit?.active || calibrationActive() || batchActive() || measuring());
+}
+function outputErrorMessage(error) {
+  if (error?.message === "BUSY")
+    return "오른쪽 보드 연결이 한 번 끊긴 뒤라 펌웨어가 좌우 ADC 설정 확인을 기다리고 있습니다. 센서 진단/설정에서 'ADC 설정 적용'을 한 번 누른 뒤 다시 켜세요.";
+  if (error?.message === "NOT_READY")
+    return "좌우 센서가 아직 준비되지 않았거나, 보정하지 않은 활성 Hall 키가 있어 출력을 켤 수 없습니다.";
+  return error?.message ?? String(error);
+}
+async function restoreOutput() {
+  restorePending = false;
+  if (!client || !connected || !wantOutput) return;
+  const current = client;
+  try {
+    if ((await current.status(0)).output_enabled || current !== client) return;
+    // The user may have pressed 출력 끄기 (or started another operation) meanwhile.
+    if (!wantOutput || busy || outputHeldOff()) return;
+    await current.output(true);
+    $("outputState").textContent = "출력 켜짐";
+    $("outputState").classList.add("on");
+    log("작업 전 상태대로 키 출력을 다시 켰습니다.");
+  } catch (e) {
+    log(`키 출력을 다시 켜지 못했습니다. ${outputErrorMessage(e)}`, true);
+  }
+}
 async function action(fn, message) {
   if (!client || busy) return;
   if (batch.state === "frozen") {
@@ -982,6 +1023,9 @@ async function action(fn, message) {
     log(e.message, true);
   } finally {
     busy = false;
+    lastOperationEnd = performance.now();
+    // Firmware may have turned output off during this operation.
+    if (connected && wantOutput) restorePending = true;
     controls();
   }
 }
@@ -1039,6 +1083,8 @@ async function connect() {
     noiseDirty = false; noiseTargetKey = "";
     clearTelemetry();
     await refresh();
+    wantOutput = (await client.status(0)).output_enabled;
+    restorePending = false;
     log("연결했습니다. 설정할 키를 선택하세요.");
     timer = setInterval(poll, 8);
   } catch (e) {
@@ -1053,15 +1099,14 @@ async function connect() {
     controls();
   }
 }
-async function disconnect({ disableOutput = true, quiet = false } = {}) {
+async function disconnect({ quiet = false } = {}) {
   rhythm?.stop("키보드 연결을 종료해 측정을 중단했습니다.");
   autoFit?.stop("키보드 연결을 종료해 측정을 중단했습니다.");
   if (timer) clearInterval(timer);
   timer = null;
-  if (client) {
-    if (connected && disableOutput) await client.output(false).catch(() => {});
-    await client.transport.close().catch(() => {});
-  }
+  // Disconnecting leaves key output exactly as it is on the keyboard.
+  if (client) await client.transport.close().catch(() => {});
+  wantOutput = restorePending = false;
   client = null;
   profile = null;
   info = null;
@@ -1092,7 +1137,7 @@ $("bindingForm").onsubmit = (e) => {
   action(async () => {
     profile.bindings[b.input] = await client.setBinding(b);
     renderSelection();
-  }, "키 매핑 RAM 적용 완료. 출력 꺼짐 · 키보드 저장은 별도입니다.");
+  }, "키 매핑 RAM 적용 완료 · 키보드 저장은 별도입니다.");
 };
 $("keyForm").onsubmit = (e) => {
   e.preventDefault();
@@ -1116,8 +1161,8 @@ $("keyForm").onsubmit = (e) => {
     }
     const k = profile.keys[selected];
     log(targets.length > 1
-      ? `${targets.length}개 키 설정 적용 완료 · 출력 꺼짐. 유지하려면 키보드에 저장하세요.`
-      : `Hall 설정 RAM 적용 완료 · 작동 ${fmt(normalizedToMm(k.actuation, travelMm[selected]), 3)} mm · 출력 꺼짐.`,
+      ? `${targets.length}개 키 설정 적용 완료. 유지하려면 키보드에 저장하세요.`
+      : `Hall 설정 RAM 적용 완료 · 작동 ${fmt(normalizedToMm(k.actuation, travelMm[selected]), 3)} mm.`,
     );
   });
 };
@@ -1307,12 +1352,15 @@ $("nextKey").onclick = () => {
 };
 $("outputOff").onclick = () =>
   action(async () => {
+    wantOutput = restorePending = false;
     await client.output(false);
     $("outputState").textContent = "출력 꺼짐";
   }, "키 출력을 껐습니다.");
 $("outputOn").onclick = () =>
   action(async () => {
-    await client.output(true);
+    try { await client.output(true); }
+    catch (e) { throw Error(`키 출력을 켜지 못했습니다. ${outputErrorMessage(e)}`); }
+    wantOutput = true;
     $("outputState").textContent = "출력 켜짐";
   }, "키 출력을 켰습니다. NKRO가 기본 적용됩니다.");
 $("save").onclick = () =>
@@ -1328,6 +1376,7 @@ $("save").onclick = () =>
       renderSelection();
       $("outputState").textContent = result.outputEnabled ? "출력 켜짐" : "출력 꺼짐";
       $("outputState").classList.toggle("on", result.outputEnabled);
+      wantOutput = result.outputEnabled;
       log(
         `영구 저장 검증 완료 · 세대 ${result.generation} · 출력 ${result.outputEnabled ? "켜짐" : "꺼짐"}.`,
       );
@@ -1335,7 +1384,7 @@ $("save").onclick = () =>
       // A failed readback must not strand the UI with a stale client/lock.
       // No additional OUTPUT or SAVE is sent to an unverified device.
       connected = false;
-      await disconnect({ disableOutput: false, quiet: true });
+      await disconnect({ quiet: true });
       throw e;
     } finally {
       saving = false;
@@ -1379,7 +1428,7 @@ $("profileFile").onchange = (e) => {
     telemetry.clear();
     measure.reset();
     await refresh();
-  }, "프로필 RAM 적용 및 읽기 검증 완료. 출력 꺼짐 · 영구 저장은 별도입니다.");
+  }, "프로필 RAM 적용 및 읽기 검증 완료 · 영구 저장은 별도입니다.");
 };
 function canvasContext(id) {
   const canvas = $(id),
@@ -1687,13 +1736,14 @@ rhythm = new RhythmLab({
     try {
       const current = client;
       if (await current.output(false) !== false) throw Error("키 출력 해제를 확인하지 못했습니다.");
+      restorePending = wantOutput; // Restored once the measurement ends.
       profile = await current.getConfig();
       const status = await current.status(INPUTS[selected].side);
       if (!connected || current !== client || !status.fresh || status.calibration_state) throw Error("최신 센서 상태를 확인할 수 없습니다.");
       if (!(profile.keys[selected]?.flags & 1)) throw Error("활성화된 Hall 키를 선택하세요.");
       renderStatus(INPUTS[selected].side, status);
       return { profile };
-    } finally { busy = false; controls(); }
+    } finally { busy = false; lastOperationEnd = performance.now(); if (connected && wantOutput) restorePending = true; controls(); }
   },
   onChange: () => controls(),
   onLog: log,
@@ -1712,13 +1762,14 @@ autoFit = new AutoFitWizard({
     try {
       const current = client;
       if (await current.output(false) !== false) throw Error("키 출력 해제를 확인하지 못했습니다.");
+      restorePending = wantOutput; // Restored once the measurement ends.
       profile = await current.getConfig();
       const status = await current.status(INPUTS[selected].side);
       if (!connected || current !== client || !status.fresh || status.calibration_state) throw Error("최신 센서 상태를 확인할 수 없습니다.");
       if (selected >= 14 || (profile.keys[selected].flags & 5) !== 5) throw Error("캘리브레이션을 완료한 Hall 키를 선택하세요.");
       renderStatus(INPUTS[selected].side, status);
       return autoFitContext();
-    } finally { busy = false; controls(); }
+    } finally { busy = false; lastOperationEnd = performance.now(); if (connected && wantOutput) restorePending = true; controls(); }
   },
   verify: async (source) => {
     const current = client;
@@ -1737,7 +1788,7 @@ autoFit = new AutoFitWizard({
       if (outcome.profile) profile = outcome.profile;
       telemetry.clear(); renderSelection();
       if (!outcome.complete) throw Error(outcome.error || "추천값 적용을 확인할 수 없습니다.");
-    } finally { busy = false; controls(); }
+    } finally { busy = false; lastOperationEnd = performance.now(); if (connected && wantOutput) restorePending = true; controls(); }
   },
   onChange: controls,
   onLog: log,

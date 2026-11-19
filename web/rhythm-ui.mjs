@@ -141,7 +141,7 @@ export class RhythmLab {
       binding: structuredClone(context.profile.bindings[context.selected]), demo: context.info.demo,
       hardwareRevision: context.info.board_rev,
       firmware: `${context.info.major}.${context.info.minor}.${context.info.patch}`, totalTravelMm: context.travelMm[context.selected] };
-    $("rhythmState").textContent = "키 출력을 끄고 측정을 준비합니다…";
+    $("rhythmState").textContent = "측정하는 동안 키 출력을 끄고 준비합니다…";
     $("rhythmRows").replaceChildren();
     $("rhythmScrubLabel").hidden = true;
     this.onChange();
@@ -240,7 +240,7 @@ export class RhythmLab {
         ...this.capture.snapshot() };
       this.renderResult();
     }
-    $("rhythmState").textContent = reason + (this.outputStopped ? " 키 출력은 꺼진 상태입니다." : "");
+    $("rhythmState").textContent = reason + (this.outputStopped ? " 측정 중 꺼 둔 키 출력은 측정 전 상태로 되돌립니다." : "");
     this.onChange();
   }
   renderResult() {
