@@ -36,6 +36,7 @@ import {
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
 import { OWLAB_TI_TRAVEL_MM, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, setActiveCustomCurve, curveAsCustomTable, rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
 import { mountCurveEditor } from "./curve-editor.mjs?v=studio-custom-curve1";
+import { mountFirmwareTab } from "./firmware-tab.mjs?v=studio-firmware-tab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
 import { inputBinding, inputBindingLabel, inputKeycapLabel, inputLabel } from "./input-labels.mjs?v=studio-default-layout1";
 import { noiseTargets, proposeNoiseSettings, sensorSeries, relativeSensorSeries } from "./sensor-settings.mjs?v=studio-sensor-lab1";
@@ -58,6 +59,7 @@ const titles = {
   calibration: "캘리브레이션",
   diagnostics: "센서 진단/설정",
   rhythm: "리듬 · RT 측정",
+  firmware: "펌웨어",
   profiles: "프로필",
 };
 const keyFields = {
@@ -164,6 +166,7 @@ function setTab(name) {
   if (name !== "rhythm" && autoFit?.active) autoFit.stop("다른 화면으로 이동해 측정을 중단했습니다.");
   activeTab = name;
   document.body.classList.toggle("performance-tab", name === "performance");
+  document.body.classList.toggle("firmware-tab", name === "firmware");
   for (const [id, title] of Object.entries(titles)) $(id).hidden = id !== name;
   document.querySelectorAll(".nav").forEach((b) => {
     b.classList.toggle("active", b.dataset.tab === name);
@@ -650,7 +653,7 @@ function controls() {
   $("rest").disabled = !mutable || !hall();
   $("cancelCal").disabled = !calibrationAllowed || !hall();
   $("disconnect").disabled = !client || busy;
-  $("connect").disabled = !!client || busy;
+  $("connect").disabled = !!client || busy || firmwareTab.active();
   const cal = latest[INPUTS[selected].side];
   $("pressed").disabled =
     !calibrationAllowed ||
@@ -790,6 +793,8 @@ function clearTelemetry() {
 }
 function infoView(data) {
   info = data;
+  installedFirmware = `${data.major}.${data.minor}.${data.patch}`;
+  firmwareTab.render();
   showFirmwareRelease(data);
   $("generation").textContent = data.generation;
   $("deviceName").textContent = `C${data.board_rev} Split Hall`;
@@ -1189,15 +1194,40 @@ async function ownBrowser() {
       "다른 설정 탭이 연결 중입니다. 그 탭에서 먼저 연결 종료하세요.",
     );
 }
+// The 펌웨어 tab borrows Studio's HID device: Studio disconnects first (saved
+// settings required) and reconnects only when the user presses 키보드 연결.
+let installedFirmware = null;
+const firmwareTab = mountFirmwareTab({
+  async takeDevice() {
+    if (!client) return null;
+    if (busy || measuring() || batchActive() || calibrationActive()) throw Error("진행 중인 작업을 먼저 끝내세요.");
+    if (latest[0]?.dirty) throw Error("저장하지 않은 설정이 있습니다. ‘키보드에 저장’ 후 다시 확인하세요.");
+    const device = client.transport.device;
+    await disconnect({ quiet: true });
+    log("펌웨어 확인을 위해 Studio 연결을 펌웨어 탭으로 넘겼습니다.");
+    return device;
+  },
+  released: () => controls(),
+  installed: () => installedFirmware,
+  log: (message) => log(message),
+});
+$("openFirmware").onclick = () => setTab("firmware");
 async function connect() {
   if (client) return;
+  if (firmwareTab.active()) {
+    log("펌웨어 탭에서 ‘업데이트 모드 종료’를 먼저 누르세요.", true);
+    return;
+  }
   busy = true;
   controls();
   let transport;
   try {
     if (!navigator.hid || !window.isSecureContext)
       throw Error("Chrome 또는 Edge에서 HTTPS 주소나 localhost로 열어주세요.");
-    const devices = await navigator.hid.requestDevice({
+    // Reuse the one keyboard this site may already open (e.g. after a firmware
+    // update re-enumerated it); otherwise ask the browser.
+    const granted = (await navigator.hid.getDevices()).filter(compatible);
+    const devices = granted.length === 1 ? granted : await navigator.hid.requestDevice({
       filters: [{ vendorId: VID, productId: PID, usagePage: USAGE_PAGE, usage: USAGE }],
     });
     if (devices.length !== 1 || !compatible(devices[0]))
@@ -1938,3 +1968,4 @@ const rtSettingHelp = mountRTSettingHelp();
 renderSelection();
 renderBatch();
 controls();
+if (location.hash === "#firmware") setTab("firmware");

@@ -227,6 +227,8 @@ let browser;
     "cancel does not revert already-applied RAM settings",
   );
   await page.locator("#disconnect").click();
+  // A different, uncalibrated keyboard: forget the granted one so the chooser runs.
+  await page.evaluate(() => { window.__studioTestHid.device = null; });
   await page.locator("#connect").click();
   await page.waitForFunction(
     () => document.querySelector("#calProgress").textContent === "보정 0 / 14",

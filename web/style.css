@@ -1429,3 +1429,14 @@ body.measuring .key {
 .curve-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; }
 .curve-legend .dot.decision { background:#f5f7fa; box-shadow:0 0 0 2px #101216; }
 .curve-live { font-size:12px; line-height:1.6; margin:2px 0 0; font-variant-numeric:tabular-nums; }
+body.firmware-tab .keyboard-panel { display:none; }
+.firmware-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:16px 0; }
+.firmware-card { border:1px solid var(--line); border-radius:12px; padding:18px; background:#121a22; margin:0 0 16px; min-width:0; }
+.firmware-card h3 { margin:0 0 12px; font-size:14px; }
+.firmware-card .field { display:grid; gap:8px; margin:14px 0; font-size:12px; color:var(--muted); }
+.firmware-card pre { font:12px/1.7 Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; background:#0d1218; border-radius:8px; padding:12px; min-height:52px; margin:12px 0 0; }
+.firmware-card .check { display:flex; gap:10px; align-items:flex-start; font-size:13px; margin:10px 0; }
+.firmware-card progress { width:100%; margin-top:14px; }
+.link-button { background:none; border:0; padding:0; color:var(--accent); font-size:inherit; font-weight:600; text-decoration:underline; }
+@media(max-width:850px) { .firmware-grid { grid-template-columns:1fr; } }
+#fwError:empty { display:none; }

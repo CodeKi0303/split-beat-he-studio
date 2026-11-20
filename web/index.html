@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Split-Beat HE Studio · 키보드 설정</title>
-    <link rel="stylesheet" href="style.css?v=studio-sensor-lab1" />
+    <link rel="stylesheet" href="style.css?v=studio-firmware-tab1" />
     <link rel="stylesheet" href="rhythm.css?v=studio-note-speed1" />
     <link rel="stylesheet" href="binding-picker.css?v=studio-chords1" />
     <link rel="stylesheet" href="rt-setting-help.css?v=studio-rthelp1" />
@@ -42,10 +42,12 @@
         <button class="nav" data-tab="profiles" aria-selected="false">
           <span>▤</span> 프로필
         </button>
+        <button class="nav" data-tab="firmware" aria-selected="false">
+          <span>⇪</span> 펌웨어
+        </button>
       </nav>
       <div class="sidebar-bottom">
         <strong>NKRO</strong><small id="timing">센서 연결 대기</small>
-        <small><a href="update.html">펌웨어 업데이트</a></small>
       </div>
     </aside>
     <main>
@@ -64,7 +66,7 @@
         키보드를 연결하고 설정할 키를 선택하세요.
       </div>
       <p id="releaseNotice" role="status" hidden>
-        <span id="releaseVersion"></span> · <a href="update.html">좌우 버전 확인·업데이트</a>
+        <span id="releaseVersion"></span> · <button id="openFirmware" type="button" class="link-button">펌웨어 탭에서 업데이트</button>
       </p>
       <section class="keyboard-panel">
         <div class="board-heading">
@@ -201,9 +203,6 @@
               <option value="2">커스텀 (센서 진단/설정에서 그림)</option>
             </select></label>
             <button id="owlabPreset" class="secondary" type="button">Owlab Ti HE · 3.4 mm</button>
-            <details class="curve-help"><summary>다른 축에 사용</summary>
-              <p>같은 곡선을 총 이동거리에 비례해 환산합니다. 공개 OW Ti 표를 바탕으로 한 근사이며, 축·자석·기판에 따른 실제 거리 차이는 남을 수 있습니다. 키별 ADC 보정 끝점은 유지합니다.</p>
-            </details>
           </div>
           <p id="curveCompatibility" class="warning" hidden></p>
           <div class="performance-grid">
@@ -342,7 +341,7 @@
                   <dt>하단 데드존</dt><dd>이 구간의 인식 이동량은 총 스트로크입니다. RT를 켜면 눌림도 유지합니다. 0 mm로 설정하면 사용하지 않습니다.</dd>
                   <dt>총 이동거리</dt><dd>키캡 높이가 아닌 스위치의 전체 스트로크입니다. 브라우저와 내보낸 프로필에 보관합니다.</dd>
                 </dl>
-                <p>mm 값은 키별 보정 끝점·선택한 거리 곡선·총 이동거리를 사용한 추정값입니다. Owlab Ti HE 곡선은 공개 표를 환산한 근사이며, 0.001 mm 입력 간격이 실제 측정 정확도를 뜻하지는 않습니다. 센서 판정은 ADC 1단계(보통 수천분의 몇 mm) 단위로 움직이므로, 그보다 작은 차이는 같은 동작이 될 수 있습니다. 0.001 mm 단위 저장은 펌웨어 v0.3.43부터이며, 이전 펌웨어는 총 이동거리의 1/1000 단위로 반올림합니다.</p>
+                <p>mm 값은 보정 끝점·거리 곡선·총 이동거리로 계산한 추정값입니다. 판정은 ADC 1단계 단위로 움직입니다.</p>
                 <p id="quantization" class="muted"></p>
               </details>
               <div class="form-actions">
@@ -452,10 +451,6 @@
               <button id="cancelCal" class="ghost" disabled>보정 취소</button
               ><span id="calState" role="status">보정 대기</span>
             </div>
-            <p>
-              각 위치에서 안정된 새 센서 샘플 256개를 모읍니다. 보정은 RAM에
-              적용됩니다.
-            </p>
           </div>
           <div class="non-hall-message" hidden>
             개별 보정은 위 그림에서 Hall 키를 선택하세요. 전체 보정은 선택한
@@ -478,7 +473,6 @@
           <label>노이즈 데드밴드 <span class="sensor-help" tabindex="0" role="img" aria-label="센서 데드밴드 도움말" title="입력 판정에 반영할 작은 ADC 변화의 기준입니다. 큰 값은 작은 움직임도 무시할 수 있으며, ADC 그래프의 흔들림 자체가 줄어드는 필터는 아닙니다. 작동점·RT·상하단 데드존과 별개입니다.">ⓘ</span><span class="sensor-number"><input id="noise" type="number" min="0" max="100" step="1" value="5" required /> ADC</span></label>
           <p id="noiseApplied" class="muted">키보드를 연결하세요.</p>
           <button id="applyNoise" type="button" class="secondary" disabled>노이즈 설정 적용</button>
-          <small>적용은 RAM에 반영됩니다. 유지하려면 ‘키보드에 저장’을 누르세요.</small>
         </fieldset>
         <fieldset id="adcTuning" class="sensor-settings-card" hidden>
           <legend>ADC 설정</legend>
@@ -489,8 +483,7 @@
             <select id="adcWindow"><option value="1">Raw</option><option value="2">2</option><option value="4">4</option><option value="6">6</option><option value="8">8</option></select>
           </label>
           <button id="applyAdcTuning" type="button" class="secondary">좌우에 적용</button>
-          <p class="muted">적용 시 키 출력을 끕니다. Raw는 스캔 간 이동평균을 끄며, ADC 2회 평균은 유지됩니다.</p>
-          <small>ADC 설정은 현재 전원에서만 유지됩니다. 전원을 다시 켜면 펌웨어 기본값(0.3.46부터 이동평균 8)으로 돌아갑니다.</small>
+          <small>전원을 다시 켜면 기본값(0.3.46부터 이동평균 8)으로 돌아갑니다.</small>
           <p id="adcTuningResult" role="status"></p>
           <button id="readRightAdc" type="button" class="secondary" hidden>오른쪽 적용값 확인</button>
           <details><summary>키별 적용값 확인</summary><div class="table-scroll">
@@ -502,7 +495,7 @@
         </fieldset>
         <fieldset id="curveEditor" class="sensor-settings-card curve-editor-card hall-only" hidden>
           <legend>ADC → 거리 곡선</legend>
-          <p class="muted">가로축은 선택한 키의 보정 범위(쉼 → 바닥) 안에서 ADC 신호 위치, 세로축은 판정에 쓰는 거리입니다. 그래프 위를 마우스로 끌면 커스텀 곡선을 그리고 ‘커스텀’이 선택됩니다. 깊어질수록 거리가 줄어들지 않도록 자동으로 맞춥니다.</p>
+          <p class="muted">그래프 위를 마우스로 끌면 커스텀 곡선을 그립니다.</p>
           <div class="curve-legend" aria-hidden="true">
             <span><i class="swatch linear"></i>직선</span><span><i class="swatch owlab"></i>Owlab Ti 근사</span><span><i class="swatch draft"></i>커스텀 (편집 중)</span><span><i class="swatch device"></i>키보드의 커스텀</span><span><i class="swatch live"></i>raw ADC</span><span><i class="swatch average"></i>이동평균</span><span><i class="dot decision"></i>판정값(평균·노이즈 제거)</span><span><i class="swatch actuation"></i>작동점</span>
           </div>
@@ -520,7 +513,7 @@
             <button id="curvePresetOwlab" type="button" class="secondary">Owlab Ti 근사</button>
           </div>
           <button id="applyCurve" type="button" class="secondary" disabled>곡선 적용</button>
-          <small>커스텀 곡선은 키보드 전체가 함께 쓰는 하나의 표입니다. 적용하면 표를 바꾸고 범위의 키 곡선을 바꾸며, 키 출력은 설정 쓰기 동안 꺼졌다가 Studio가 다시 켭니다. RAM에 반영되므로 유지하려면 ‘키보드에 저장’을 누르세요.</small>
+          <small>커스텀 곡선은 모든 키가 함께 쓰는 표 하나입니다.</small>
         </fieldset>
         </div>
         <div class="hall-only">
@@ -561,7 +554,7 @@
           <p id="sampleInfo" class="muted">샘플 대기</p>
           <div class="sensor-impact-live">
             <div class="sensor-view-toolbar"><h3>다른 키의 동시 변화</h3><label>비교 범위<select id="impactScope"><option value="same">같은 쪽</option><option value="other">반대쪽</option><option value="all">양쪽 전체</option></select></label></div>
-            <p class="muted">각 키의 관찰 구간 첫 값을 0으로 맞춘 ADC 변화입니다. 아래 이름을 눌러 그래프를 켜고 끌 수 있습니다.</p>
+            <p class="muted">관찰 구간 첫 값 대비 ADC 변화 · 이름을 눌러 켜고 끕니다.</p>
             <canvas id="impactChart" role="img" aria-label="다른 Hall 키의 시간별 ADC 변화"></canvas>
             <div id="impactLegend" class="sensor-impact-legend"></div>
             <p id="impactLiveSummary" class="muted">샘플 대기</p>
@@ -604,8 +597,7 @@
           센서 진단과 노이즈 설정을 보려면 위 그림에서 Hall 키를 선택하세요.
         </div>
         <details>
-          <summary>측정 안내 · 통신 상태</summary>
-          <p>브라우저가 받은 샘플을 집계합니다. 전체 ADC 샘플이나 전 대역 전기 노이즈 측정은 아닙니다. 키 간 동시 변화는 원인이나 인과관계를 확정하지 않습니다. 인식 이동량은 상단 데드존에서 0 mm, 하단 데드존에서 총 스트로크로 표시합니다.</p>
+          <summary>통신 상태</summary>
           <p id="linkStatus">연결 대기</p>
         </details>
       </section>
@@ -701,14 +693,13 @@
         </details>
         <details class="inline-help"><summary>보정값과 측정 해상도</summary>
           <p>+ 보정은 소리보다 늦게, − 보정은 소리보다 먼저 판정되는 것을 목표로 합니다. 개인 제안값에는 오디오 경로·입력 관측·타이밍 습관이 함께 포함됩니다. 리듬게임의 보정값 부호와 크기는 게임마다 다를 수 있습니다.</p>
-          <p>깊이 그래프는 선택한 거리 곡선과 총 스트로크에 따른 mm 추정입니다. 상단 데드존 안은 0 mm, 하단 데드존 안은 총 스트로크로 표시하며 중간 값은 그대로입니다. 눌림·해제는 펌웨어의 실제 RT 상태를 관측합니다. 짧은 변화가 샘플 사이에 발생하면 놓칠 수 있으며, 표시된 관측 구간보다 작은 시간차를 확정할 수 없습니다. 소리 시점은 Web Audio 출력 추정값이며 스피커·헤드폰의 실측 시각은 아닙니다.</p>
-          <p>반복 입력은 각 소리에 누르고 다음 소리까지 간격의 절반 지점에서 놓는 목표를 표시합니다. 유지 테스트는 소리가 이어지는 동안 입력이 유지되는지, 끊기는 시점에 해제되는지 비교합니다. 추천값은 자동으로 키보드에 적용하거나 저장하지 않습니다.</p>
+          <p>눌림·해제는 펌웨어의 RT 상태를 관측하며, 관측 구간보다 짧은 시간차는 확정할 수 없습니다. 소리 시점은 Web Audio 출력 추정값입니다.</p>
         </details>
       </section>
       <section id="profiles" class="workspace" hidden>
         <div class="panel-title">
           <div>
-            <p class="eyebrow">05 / PROFILES</p>
+            <p class="eyebrow">06 / PROFILES</p>
             <h2>설정을 보관하고 불러오기</h2>
           </div>
         </div>
@@ -726,17 +717,52 @@
             hidden
           />
         </div>
-        <details class="inline-help">
-          <summary>프로필 도움말</summary>
-          <p>가져오기는 RAM에 적용하며 키 출력을 끕니다. 적용 후 ‘키보드에 저장’을 눌러 주세요. 다른 브라우저에서도 같은 mm 표기를 쓰려면 프로필을 가져오세요.</p>
-        </details>
         <p>키보드 저장 세대 <strong id="generation">—</strong></p>
+      </section>
+      <section id="firmware" class="workspace" hidden>
+        <div class="panel-title">
+          <div>
+            <p class="eyebrow">07 / FIRMWARE</p>
+            <h2>좌우 펌웨어 업데이트</h2>
+          </div>
+          <span id="fwReleaseStatus" class="pill">정식 릴리스 확인 중</span>
+        </div>
+        <p class="muted">설정을 키보드에 저장한 뒤 진행하세요. 확인을 누르면 Studio 연결을 잠시 넘겨받습니다.</p>
+        <div class="firmware-grid">
+          <div class="firmware-card">
+            <h3>1. 설치할 펌웨어</h3>
+            <button id="fwReleaseFile" type="button" disabled>정식 릴리스 불러오기</button>
+            <label class="field">또는 좌우 .fw.json 파일<input id="fwFile" type="file" accept=".json,application/json" multiple /></label>
+            <pre id="fwPackage">선택한 파일 없음</pre>
+          </div>
+          <div class="firmware-card">
+            <h3>2. 키보드 확인</h3>
+            <button id="fwInspect" type="button">양쪽 버전 확인</button>
+            <pre id="fwDevice">확인 전</pre>
+          </div>
+        </div>
+        <div class="firmware-card">
+          <h3>3. 기록</h3>
+          <label class="check"><input id="fwReadback" type="checkbox" /> 기록 후 Flash 전체 읽기 대조 (느림)</label>
+          <label class="check"><input id="fwAgree" type="checkbox" /> 설정을 저장했고, 기록 중 USB와 좌우 케이블을 유지합니다.</label>
+          <div class="form-actions">
+            <button id="fwUpdate" type="button" disabled>좌우 업데이트</button
+            ><button id="fwLeave" type="button" class="secondary" disabled>업데이트 모드 종료</button>
+          </div>
+          <progress id="fwProgress" value="0" max="1"></progress>
+          <p id="fwStatus" role="status" aria-live="polite">펌웨어와 키보드를 확인하세요.</p>
+          <p id="fwError" class="warning" role="alert"></p>
+        </div>
+        <details class="inline-help">
+          <summary>문제가 있을 때</summary>
+          <p>같은 이미지가 이미 실행 중인 쪽은 건너뜁니다. 기록 중 끊기면 양쪽 전원을 분리했다가 다시 연결하고 같은 파일로 다시 확인하세요. v0.3.0 이전 펌웨어는 양쪽 부팅부를 SWD로 한 번 설치해야 USB 업데이트를 쓸 수 있습니다.</p>
+        </details>
       </section>
       <details class="worklog">
         <summary>작업 기록</summary>
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-fine-travel1"></script>
+    <script type="module" src="app.mjs?v=studio-firmware-tab1"></script>
   </body>
 </html>
