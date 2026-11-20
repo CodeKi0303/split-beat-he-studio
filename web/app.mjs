@@ -34,7 +34,7 @@ import {
   TRAVEL_MAX,
 } from "./protocol.mjs?v=studio-retrigger1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
-import { OWLAB_TI_TRAVEL_MM, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, setActiveCustomCurve, curveAsCustomTable } from "./hall-curve.mjs?v=studio-owlab1";
+import { OWLAB_TI_TRAVEL_MM, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, setActiveCustomCurve, curveAsCustomTable, rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
 import { mountCurveEditor } from "./curve-editor.mjs?v=studio-custom-curve1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
 import { inputBinding, inputBindingLabel, inputKeycapLabel, inputLabel } from "./input-labels.mjs?v=studio-default-layout1";
@@ -99,7 +99,12 @@ let wantOutput = false, restorePending = false, lastOperationEnd = -Infinity;
 // Firmware 0.3.46+ shared custom curve: the keyboard's table and whether the
 // user has drawn or picked a draft, or chosen a curve kind, since then.
 let deviceCurve = null, curveDrawn = false, curveKindTouched = false;
+// Latest ADC_COMPARE snapshot for the curve card (raw / moving average /
+// post-deadband decision). Right keys need firmware 0.3.47+.
+let curveLive = null, compareRightUnsupported = false;
 const curveSupported = () => connected && !!(info?.capabilities & CAP_CUSTOM_CURVE);
+const curveLiveWanted = () => adcTuningSupported() && curveSupported() && hall() && !$("curveEditor").hidden &&
+  !(selected >= 7 && compareRightUnsupported);
 const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TUNING);
 const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
 const comparingAdc = () => adcTuningSupported() && selected < 7 && $("diagnosticAdcCompare").checked;
@@ -852,14 +857,38 @@ function renderCurveEditor() {
   const calibrated = !!(key && key.flags & 4);
   const span = calibrated ? Math.abs(key.pressed - key.released) : null;
   const status = hall() ? latest[INPUTS[selected].side] : null;
-  let liveSignal = null;
-  if (calibrated && status?.fresh) {
-    const raw = status.raw[selected % 7], sign = Math.sign(key.pressed - key.released);
-    liveSignal = Math.round(((raw - key.released) * sign / span) * 10000);
-  }
-  curveEditor.setContext({ travelMm: hall() ? travelMm[selected] : 4, span, liveSignal,
-    actuation: key ? key.actuation : null });
+  const statusRaw = status?.fresh ? status.raw[selected % 7] : null;
+  const compare = curveLive && curveLive.key === selected && performance.now() - curveLive.time < 1000 ? curveLive : null;
+  const sign = calibrated ? Math.sign(key.pressed - key.released) : 0;
+  const signal = (code) => calibrated && Number.isFinite(code) ? ((code - key.released) * sign / span) * 10000 : null;
+  const raw = compare && selected < 7 ? compare.before : statusRaw;
+  curveEditor.setContext({ travelMm: hall() ? travelMm[selected] : 4, span,
+    keyCurveId: key?.curve_id ?? 0, actuation: key ? key.actuation : null,
+    live: { raw: signal(raw), average: compare ? signal(compare.after) : null, decision: compare ? signal(compare.decision) : null } });
+  renderCurveLive(key, raw, compare);
   if (!$("curveReadout").dataset.hover) renderCurveReadout();
+}
+function renderCurveLive(key, raw, compare) {
+  const out = $("curveLive");
+  if (!key || !hall() || !Number.isFinite(raw)) { out.textContent = "센서값을 기다립니다."; return; }
+  const right = selected >= 7, names = ["직선", "Owlab Ti 근사", "커스텀"];
+  const parts = [`raw ADC ${raw}${right ? " (오른쪽 보드가 평균 후 전송)" : ""}`];
+  if (compare) {
+    if (!right) parts.push(`이동평균(${compare.window === 1 ? "Raw" : `${compare.window}스캔`}) ${compare.after}`);
+    let judged = "";
+    if (key.flags & 4) {
+      const travel = rawToTravel(compare.decision, key, deviceCurve ?? CUSTOM_CURVE_IDENTITY);
+      judged = ` → ${normalizedToMm(travel, travelMm[selected]).toFixed(3)} mm (${names[key.curve_id ?? 0]})`;
+    }
+    parts.push(`판정값(노이즈 데드밴드 ${key.noise_deadband}) ${compare.decision}${judged}`);
+  } else if (!adcTuningSupported()) {
+    parts.push("평균·판정값은 ADC 설정을 지원하는 펌웨어에서 표시됩니다.");
+  } else if (right && compareRightUnsupported) {
+    parts.push("오른쪽 키의 판정값은 펌웨어 0.3.47 이상에서 표시됩니다.");
+  } else {
+    parts.push("판정값을 읽는 중…");
+  }
+  out.textContent = parts.join(" · ");
 }
 $("curveCanvas").addEventListener("pointerenter", () => { $("curveReadout").dataset.hover = "1"; });
 $("curveCanvas").addEventListener("pointerleave", () => { delete $("curveReadout").dataset.hover; renderCurveReadout(); });
@@ -1057,16 +1086,22 @@ async function poll() {
       }
     }
     if (activeTab === "diagnostics") {
-      if (!fast && !batchActive() && !calibrationActive() && comparingAdc() && performance.now() - lastAdcComparison >= 100) {
+      if (!fast && !batchActive() && !calibrationActive() && (comparingAdc() || curveLiveWanted()) &&
+          performance.now() - lastAdcComparison >= 100) {
         const key = selected, time = performance.now();
         lastAdcComparison = time;
         try {
           const sample = await client.adcCompare(key);
-          if (!adcComparison.some((row) => row.key === key && row.sequence === sample.sequence)) {
+          curveLive = { key, time, ...sample };
+          if (comparingAdc() && !adcComparison.some((row) => row.key === key && row.sequence === sample.sequence)) {
             adcComparison = adcComparison.filter((row) => row.time >= time - 60000).slice(-1999);
             adcComparison.push({ key, time, ...sample });
           }
-        } catch { /* A missed diagnostic snapshot does not stop ordinary status polling. */ }
+        } catch (error) {
+          // Firmware before 0.3.47 compares left keys only. A missed diagnostic
+          // snapshot never stops ordinary status polling.
+          if (key >= 7 && /BAD_INDEX/.test(error?.message ?? "")) compareRightUnsupported = true;
+        }
       }
       renderDiagnostics();
     }
@@ -1214,6 +1249,7 @@ async function disconnect({ quiet = false } = {}) {
   connected = false;
   noiseDirty = false; noiseTargetKey = "";
   deviceCurve = null; curveDrawn = curveKindTouched = false;
+  curveLive = null; compareRightUnsupported = false;
   setActiveCustomCurve(CUSTOM_CURVE_IDENTITY);
   curveEditor.setDevice(null);
   clearTelemetry();

@@ -504,9 +504,10 @@
           <legend>ADC → 거리 곡선</legend>
           <p class="muted">가로축은 선택한 키의 보정 범위(쉼 → 바닥) 안에서 ADC 신호 위치, 세로축은 판정에 쓰는 거리입니다. 그래프 위를 마우스로 끌면 커스텀 곡선을 그리고 ‘커스텀’이 선택됩니다. 깊어질수록 거리가 줄어들지 않도록 자동으로 맞춥니다.</p>
           <div class="curve-legend" aria-hidden="true">
-            <span><i class="swatch linear"></i>직선</span><span><i class="swatch owlab"></i>Owlab Ti 근사</span><span><i class="swatch draft"></i>커스텀 (편집 중)</span><span><i class="swatch device"></i>키보드의 커스텀</span><span><i class="swatch live"></i>현재 ADC</span><span><i class="swatch actuation"></i>작동점</span>
+            <span><i class="swatch linear"></i>직선</span><span><i class="swatch owlab"></i>Owlab Ti 근사</span><span><i class="swatch draft"></i>커스텀 (편집 중)</span><span><i class="swatch device"></i>키보드의 커스텀</span><span><i class="swatch live"></i>raw ADC</span><span><i class="swatch average"></i>이동평균</span><span><i class="dot decision"></i>판정값(평균·노이즈 제거)</span><span><i class="swatch actuation"></i>작동점</span>
           </div>
           <div class="curve-canvas-wrap"><canvas id="curveCanvas" role="img" aria-label="ADC 신호 대비 판정 거리: 직선, Owlab Ti 근사, 커스텀 곡선"></canvas></div>
+          <p id="curveLive" class="curve-live" aria-live="polite"></p>
           <p id="curveReadout" class="muted" role="status"></p>
           <div class="curve-controls">
             <label>곡선<select id="curveKind"><option value="0">직선</option><option value="1">Owlab Ti 근사</option><option value="2">커스텀</option></select></label>

@@ -1425,3 +1425,7 @@ body.measuring .key {
 .curve-controls label { font-size:12px; color:var(--muted); }
 .curve-presets { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 14px; font-size:12px; }
 @media(max-width:520px) { .curve-canvas-wrap { height:240px; } }
+.curve-legend .average { border-top:2px dashed #c39bff; }
+.curve-legend .dot { display:inline-block; width:9px; height:9px; border-radius:50%; }
+.curve-legend .dot.decision { background:#f5f7fa; box-shadow:0 0 0 2px #101216; }
+.curve-live { font-size:12px; line-height:1.6; margin:2px 0 0; font-variant-numeric:tabular-nums; }

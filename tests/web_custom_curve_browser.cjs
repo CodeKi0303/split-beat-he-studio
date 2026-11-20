@@ -27,7 +27,29 @@ let browser;
       async open() { this.opened = true; },
       async close() { this.opened = false; },
       async sendReport(id, bytes) {
-        const response = await sim.exchange(bytes);
+        // The demo has no ADC tuning; emulate 0x47 (rate/window) and 0x48
+        // (compare: latest, average, post-deadband decision) for the live card.
+        const request = unpackPacket(bytes);
+        let response;
+        if (request.op === 0x47 || request.op === 0x48) {
+          const out = new Uint8Array(request.op === 0x47 ? 5 : 12), view = new DataView(out.buffer);
+          if (request.op === 0x47) { view.setUint32(0, 96000, true); out[4] = 8; }
+          else {
+            const key = request.payload[0];
+            if (key >= 14) { response = { op: request.op | 128, seq: request.seq, status: 3, payload: new Uint8Array() }; }
+            else {
+              out[0] = key; out[1] = 8; view.setUint32(2, ++window.__compareSeq, true);
+              view.setUint16(6, 1210, true); view.setUint16(8, 1204, true); view.setUint16(10, 1200, true);
+              window.__compareKeys.push(key);
+            }
+          }
+          response ??= { op: request.op | 128, seq: request.seq, status: 0, payload: out };
+        } else {
+          response = await sim.exchange(bytes);
+          if (request.op === 1 && !response.status)
+            new DataView(response.payload.buffer, response.payload.byteOffset).setUint32(16,
+              new DataView(response.payload.buffer, response.payload.byteOffset).getUint32(16, true) | 0x8000, true);
+        }
         const encoded = packet(response.op, response.seq, response.payload, response.status);
         this.dispatchEvent(Object.assign(new Event("inputreport"), { reportId: 0, device: this, data: new DataView(encoded.buffer) }));
       },
@@ -37,6 +59,8 @@ let browser;
     hid.getDevices = async () => [device];
     Object.defineProperty(navigator, "hid", { configurable: true, value: hid });
     window.__sim = sim;
+    window.__compareSeq = 0;
+    window.__compareKeys = [];
   });
   await page.locator("#connect").click();
   await page.waitForFunction(() => document.querySelector("#mode").textContent.startsWith("연결됨"), null, { timeout: 8000 });
@@ -48,6 +72,18 @@ let browser;
   await page.locator("#key-4").click();
   const editor = page.locator("#curveEditor");
   await editor.waitFor({ state: "visible" });
+  // Live values: raw, moving average and the post-deadband decision with its mm.
+  const liveText = () => page.locator("#curveLive").textContent();
+  await page.waitForFunction(() => /판정값\(노이즈 데드밴드 \d+\) 1200 → [\d.]+ mm \(직선\)/.test(document.querySelector("#curveLive").textContent), null, { timeout: 8000 })
+    .catch(async (e) => { throw Error(`${e.message} live=${await liveText()}`); });
+  assert.match(await liveText(), /^raw ADC 1210 · 이동평균\(8스캔\) 1204 · /);
+  assert.match(await liveText(), /1200 → 0\.400 mm/, "1200 on a 1000..3000 linear key at 4 mm is 0.400 mm");
+  await page.locator("#key-11").click();
+  await page.waitForFunction(() => window.__compareKeys.includes(11) && document.querySelector("#curveLive").textContent.includes("오른쪽 보드가 평균 후 전송"), null, { timeout: 8000 })
+    .catch(async (e) => { throw Error(`${e.message} live=${await liveText()}`); });
+  assert.doesNotMatch(await liveText(), /이동평균/, "right keys only carry the averaged code");
+  await page.locator("#key-4").click();
+  await page.waitForFunction(() => document.querySelector("#curveLive").textContent.startsWith("raw ADC 1210 · 이동평균"), null, { timeout: 8000 });
   assert.equal(await page.locator("#curveKind").inputValue(), "0");
   assert.equal(await page.locator("#applyCurve").isDisabled(), true, "nothing to apply yet");
 

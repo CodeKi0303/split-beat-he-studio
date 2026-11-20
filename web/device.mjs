@@ -327,8 +327,9 @@ export class KeyboardClient {
       return { rate: appliedRate, window: appliedWindow };
     });
   }
+  // 0..6 left; 7..13 right on firmware 0.3.47+ (older firmware replies BAD_INDEX).
   adcCompare(key) {
-    integer(key, 0, 6, "왼쪽 Hall 키");
+    integer(key, 0, 13, "Hall 키");
     return this.run(async () => {
       if (!(this.deviceInfo?.capabilities & CAP_ADC_TUNING)) throw Error("이 펌웨어는 ADC 비교를 지원하지 않습니다.");
       const reply = await this.request(OP.ADC_COMPARE, new Uint8Array([key]), 180);
@@ -336,7 +337,7 @@ export class KeyboardClient {
       const view = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
       const [before, after, decision] = [6, 8, 10].map((offset) => view.getUint16(offset, true));
       if (Math.max(before, after, decision) > 4095) throw Error("ADC 비교 값 범위 오류");
-      return { sequence: view.getUint32(2, true), before, after, decision };
+      return { window: reply[1], sequence: view.getUint32(2, true), before, after, decision };
     });
   }
   async _config(read = (op, payload) => this.request(op, payload)) {

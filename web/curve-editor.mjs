@@ -6,6 +6,7 @@ import { travelFromSignal, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CU
 const COLORS = {
   grid: "#293443", axis: "#8491a5", linear: "#969eac", owlab: "#72d4df",
   device: "rgba(180, 237, 120, 0.45)", draft: "#b4ed78", live: "#ff9e9c", actuation: "#f2c46d",
+  average: "#c39bff", decision: "#f5f7fa",
 };
 const CURVE_NAMES = ["직선", "Owlab Ti 근사", "커스텀"];
 
@@ -20,7 +21,10 @@ export function setCurvePoint(points, index, value) {
 
 export function mountCurveEditor(canvas, { onDraw = () => {}, onHover = () => {} } = {}) {
   let draft = [...CUSTOM_CURVE_IDENTITY], device = null, enabled = false;
-  let context = { travelMm: 4, keyCurveId: HALL_CURVE_LINEAR, span: null, liveSignal: null, actuation: null, kind: HALL_CURVE_CUSTOM };
+  // live: ADC signal fractions (0..10000) of the raw code, the moving average and
+  // the post-deadband decision code; null when unknown.
+  let context = { travelMm: 4, keyCurveId: HALL_CURVE_LINEAR, span: null, actuation: null,
+    live: { raw: null, average: null, decision: null } };
   let dragging = false, lastIndex = null, geometry = null;
 
   function layout() {
@@ -85,10 +89,26 @@ export function mountCurveEditor(canvas, { onDraw = () => {}, onHover = () => {}
       c.fillStyle = COLORS.actuation; c.textAlign = "right";
       c.fillText(`작동점 ${(context.actuation * mm / TRAVEL_MAX).toFixed(3)} mm`, R, py(context.actuation) - 5);
     }
-    if (Number.isFinite(context.liveSignal)) {
-      const x = px(Math.max(0, Math.min(10000, context.liveSignal)));
+    const clampSignal = (s) => Math.max(0, Math.min(10000, Math.round(s)));
+    const { raw, average, decision } = context.live ?? {};
+    if (Number.isFinite(raw)) {
+      const x = px(clampSignal(raw));
       c.strokeStyle = COLORS.live; c.lineWidth = 1.5;
       c.beginPath(); c.moveTo(x, T); c.lineTo(x, B); c.stroke();
+    }
+    if (Number.isFinite(average)) {
+      const x = px(clampSignal(average));
+      c.strokeStyle = COLORS.average; c.lineWidth = 1.5; c.setLineDash([3, 3]);
+      c.beginPath(); c.moveTo(x, T); c.lineTo(x, B); c.stroke(); c.setLineDash([]);
+    }
+    if (Number.isFinite(decision)) {
+      // The decision code on the curve the key actually uses (the keyboard's table).
+      const id = context.keyCurveId ?? HALL_CURVE_LINEAR, s = clampSignal(decision);
+      const y = py(travelFromSignal(s, id, id === HALL_CURVE_CUSTOM ? (device ?? draft) : CUSTOM_CURVE_IDENTITY));
+      c.strokeStyle = COLORS.decision; c.lineWidth = 1; c.setLineDash([2, 3]);
+      c.beginPath(); c.moveTo(L, y); c.lineTo(px(s), y); c.stroke(); c.setLineDash([]);
+      c.fillStyle = COLORS.decision; c.strokeStyle = "#101216"; c.lineWidth = 2;
+      c.beginPath(); c.arc(px(s), y, 5, 0, Math.PI * 2); c.fill(); c.stroke();
     }
   }
 
