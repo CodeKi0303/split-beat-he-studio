@@ -198,6 +198,7 @@
               <option value="" hidden>혼합</option>
               <option value="0">선형</option>
               <option value="1">Owlab Ti HE · 근사</option>
+              <option value="2">커스텀 (센서 진단/설정에서 그림)</option>
             </select></label>
             <button id="owlabPreset" class="secondary" type="button">Owlab Ti HE · 3.4 mm</button>
             <details class="curve-help"><summary>다른 축에 사용</summary>
@@ -489,7 +490,7 @@
           </label>
           <button id="applyAdcTuning" type="button" class="secondary">좌우에 적용</button>
           <p class="muted">적용 시 키 출력을 끕니다. Raw는 스캔 간 이동평균을 끄며, ADC 2회 평균은 유지됩니다.</p>
-          <small>ADC 설정은 현재 전원에서만 유지됩니다. 전원을 다시 켜면 펌웨어 기본값으로 돌아갑니다.</small>
+          <small>ADC 설정은 현재 전원에서만 유지됩니다. 전원을 다시 켜면 펌웨어 기본값(0.3.46부터 이동평균 8)으로 돌아갑니다.</small>
           <p id="adcTuningResult" role="status"></p>
           <button id="readRightAdc" type="button" class="secondary" hidden>오른쪽 적용값 확인</button>
           <details><summary>키별 적용값 확인</summary><div class="table-scroll">
@@ -498,6 +499,27 @@
               <tbody id="adcWindowsByKey"></tbody>
             </table>
           </div></details>
+        </fieldset>
+        <fieldset id="curveEditor" class="sensor-settings-card curve-editor-card hall-only" hidden>
+          <legend>ADC → 거리 곡선</legend>
+          <p class="muted">가로축은 선택한 키의 보정 범위(쉼 → 바닥) 안에서 ADC 신호 위치, 세로축은 판정에 쓰는 거리입니다. 그래프 위를 마우스로 끌면 커스텀 곡선을 그리고 ‘커스텀’이 선택됩니다. 깊어질수록 거리가 줄어들지 않도록 자동으로 맞춥니다.</p>
+          <div class="curve-legend" aria-hidden="true">
+            <span><i class="swatch linear"></i>직선</span><span><i class="swatch owlab"></i>Owlab Ti 근사</span><span><i class="swatch draft"></i>커스텀 (편집 중)</span><span><i class="swatch device"></i>키보드의 커스텀</span><span><i class="swatch live"></i>현재 ADC</span><span><i class="swatch actuation"></i>작동점</span>
+          </div>
+          <div class="curve-canvas-wrap"><canvas id="curveCanvas" role="img" aria-label="ADC 신호 대비 판정 거리: 직선, Owlab Ti 근사, 커스텀 곡선"></canvas></div>
+          <p id="curveReadout" class="muted" role="status"></p>
+          <div class="curve-controls">
+            <label>곡선<select id="curveKind"><option value="0">직선</option><option value="1">Owlab Ti 근사</option><option value="2">커스텀</option></select></label>
+            <label>적용 범위<select id="curveScope"><option value="selected">선택한 키</option><option value="left">왼쪽 Hall 전체</option><option value="right">오른쪽 Hall 전체</option><option value="all">모든 Hall 키</option></select></label>
+          </div>
+          <div class="curve-presets">
+            <span class="muted">커스텀 시작점</span>
+            <button id="curvePresetDevice" type="button" class="secondary">키보드 값</button>
+            <button id="curvePresetLinear" type="button" class="secondary">직선</button>
+            <button id="curvePresetOwlab" type="button" class="secondary">Owlab Ti 근사</button>
+          </div>
+          <button id="applyCurve" type="button" class="secondary" disabled>곡선 적용</button>
+          <small>커스텀 곡선은 키보드 전체가 함께 쓰는 하나의 표입니다. 적용하면 표를 바꾸고 범위의 키 곡선을 바꾸며, 키 출력은 설정 쓰기 동안 꺼졌다가 Studio가 다시 켭니다. RAM에 반영되므로 유지하려면 ‘키보드에 저장’을 누르세요.</small>
         </fieldset>
         </div>
         <div class="hall-only">

@@ -1407,3 +1407,21 @@ body.measuring .key {
 .auto-fit-panel small { color: #99a9ba; }
 #autoFitMetrics, #autoFitRetestSummary { white-space: pre-line; line-height: 1.7; }
 @media (max-width: 600px) { .auto-fit-panel { padding: 14px; } .auto-fit-actions button { flex: 1 1 140px; } }
+
+.curve-editor-card { grid-column:1 / -1; }
+.curve-canvas-wrap { position:relative; height:300px; margin:8px 0 4px; }
+.curve-canvas-wrap canvas { width:100%; height:100%; display:block; touch-action:none; }
+.curve-canvas-wrap canvas.drawable { cursor:crosshair; }
+.curve-legend { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:var(--muted); }
+.curve-legend span { display:flex; align-items:center; gap:6px; }
+.curve-legend .swatch { display:inline-block; width:18px; height:0; border-top:2px solid; }
+.curve-legend .linear { border-top:2px dashed #969eac; }
+.curve-legend .owlab { border-top:2px dotted #72d4df; }
+.curve-legend .draft { border-top:3px solid #b4ed78; }
+.curve-legend .device { border-top:2px solid rgba(180,237,120,.45); }
+.curve-legend .live { border-top:2px solid #ff9e9c; }
+.curve-legend .actuation { border-top:2px dashed #f2c46d; }
+.curve-controls { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin:10px 0; }
+.curve-controls label { font-size:12px; color:var(--muted); }
+.curve-presets { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:0 0 14px; font-size:12px; }
+@media(max-width:520px) { .curve-canvas-wrap { height:240px; } }

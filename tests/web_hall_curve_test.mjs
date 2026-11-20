@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { rawToTravel } from "../web/hall-curve.mjs";
+import { rawToTravel, travelFromSignal, curveAsCustomTable } from "../web/hall-curve.mjs";
+import { setCurvePoint } from "../web/curve-editor.mjs";
 import { rawToEstimatedMm, summarizeTravel, summarize, InterferenceSession } from "../web/telemetry.mjs";
 import { SampledRT } from "../web/rhythm-analysis.mjs";
 import { demoRTState, demoRTStep, DemoTransport } from "../web/demo.mjs";
-import { keyRecord, encodeKey, decodeKey, CAP_HALL_CURVE, OP } from "../web/protocol.mjs";
+import { keyRecord, encodeKey, decodeKey, CAP_HALL_CURVE, OP, CUSTOM_CURVE_IDENTITY, encodeCustomCurve, decodeCustomCurve } from "../web/protocol.mjs";
 import { KeyboardClient } from "../web/device.mjs";
 import { makeUiProfile, parseUiProfile } from "../web/ui-profile.mjs";
 import { proposePerformanceSettings, applyPerformanceSettings } from "../web/performance-settings.mjs";
@@ -41,7 +42,7 @@ for (let i=0;i<10;i++) for (const side of [0,1]) interference.add(side,observe(i
 assert.equal(interference.tick(2000),"done");
 assert.equal(interference.result().keys[1].meanDeltaMm,
   rawToEstimatedMm(1420,key,3.4)-rawToEstimatedMm(1400,key,3.4));
-for (const bad of [-1, 2, null, true, "1"])
+for (const bad of [-1, 3, null, true, "1"])
   assert.throws(() => keyRecord({ ...key, curve_id: bad }));
 const legacy = { ...key }; delete legacy.curve_id; delete legacy.bottom_deadzone;
 assert.equal(keyRecord(legacy).curve_id, 0);
@@ -80,4 +81,29 @@ assert.equal(outcome.complete, false);
 assert.deepEqual(oldTransport.mutations, [], "group capability preflight cannot disable output");
 const wrapped = makeUiProfile(profile, Array(14).fill(3.4));
 assert.deepEqual(parseUiProfile(wrapped), { device: profile, travelMm: Array(14).fill(3.4) });
-console.log("Hall curves: monotonicity, polarity, proportional travel, codec/profile compatibility, RT/demo parity and old-firmware zero-mutation gates PASS");
+// Firmware 0.3.46+ custom curve (curve_id 2): one shared table, firmware-identical math.
+const custom = { ...key, curve_id: 2 };
+for (let raw = 900; raw <= 3100; raw += 7)
+  assert.equal(rawToTravel(raw, custom, CUSTOM_CURVE_IDENTITY), rawToTravel(raw, { ...key, curve_id: 0 }));
+const drawn = [150, 350, 650, 1050, 1550, 2150, 2850, 3650, 4550, 5500, 6450, 7400, 8300, 9100, 9700];
+assert.equal(rawToTravel(1125, custom, drawn), 150); // span 2000: 125 codes -> signal 625
+assert.equal(travelFromSignal(312, 2, drawn), Math.floor((312 * 150 + 312) / 625));
+assert.equal(travelFromSignal(10000, 2, drawn), 10000);
+assert.deepEqual(curveAsCustomTable(0), [...CUSTOM_CURVE_IDENTITY]);
+assert.deepEqual(curveAsCustomTable(1).map((v, i) => travelFromSignal((i + 1) * 625, 1)), curveAsCustomTable(1));
+for (const bad of [drawn.slice(0, 14), [...drawn.slice(0, 14), 10001], [200, 100, ...drawn.slice(2)], [...drawn.slice(0, 14), 1.5]])
+  assert.throws(() => encodeCustomCurve(bad));
+assert.deepEqual(decodeCustomCurve(encodeCustomCurve(drawn)), drawn);
+// Drawing keeps the table non-decreasing around an edited point.
+assert.deepEqual(setCurvePoint(drawn, 3, 5000).slice(0, 9), [150, 350, 650, 5000, 5000, 5000, 5000, 5000, 5000]);
+assert.deepEqual(setCurvePoint(drawn, 3, 100).slice(0, 5), [100, 100, 100, 100, 1550]);
+const curveDemo = new DemoTransport(), curveClient = new KeyboardClient(curveDemo);
+assert.deepEqual(await curveClient.customCurve(), [...CUSTOM_CURVE_IDENTITY]);
+assert.deepEqual(await curveClient.setCustomCurve(drawn), drawn);
+assert.equal(curveClient.outputEnabled, false);
+assert.deepEqual(await curveClient.customCurve(), drawn);
+await assert.rejects(() => oldClient.customCurve(), /0.3.46/);
+await assert.rejects(() => oldClient.setCustomCurve(drawn), /0.3.46/);
+assert.deepEqual(oldTransport.mutations, [], "custom curve capability preflight precedes any mutation");
+assert.throws(() => proposePerformanceSettings(base, [0], Array(14).fill(3.4), { curve_id: 2 }, CAP_HALL_CURVE), /0.3.46/);
+console.log("Hall curves: monotonicity, polarity, proportional travel, codec/profile compatibility, RT/demo parity, custom curve table/codec/client and old-firmware zero-mutation gates PASS");

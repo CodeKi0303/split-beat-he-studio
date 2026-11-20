@@ -63,7 +63,7 @@ export function proposePerformanceSettings(
   if (draft.bottom_deadzone > 0 && !(capabilities & CAP_BOTTOM_DEADZONE))
     throw Error("하단 데드존은 펌웨어 업데이트 후 적용할 수 있습니다.");
   if (Object.hasOwn(draft, "curve_id") &&
-      (!Number.isInteger(draft.curve_id) || draft.curve_id < 0 || draft.curve_id > 1))
+      (!Number.isInteger(draft.curve_id) || draft.curve_id < 0 || draft.curve_id > 2))
     throw Error("지원하지 않는 Hall 거리 곡선입니다.");
   if (draft.curve_id && !(capabilities & CAP_HALL_CURVE))
     throw Error("비선형 거리 보정은 펌웨어 0.3.5 업데이트 후 적용할 수 있습니다.");

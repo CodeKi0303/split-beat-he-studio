@@ -28,10 +28,14 @@ import {
   CAP_ADC_PAIR,
   CAP_ADC_PAIR_READ,
   CAP_FINE_TRAVEL,
+  CAP_CUSTOM_CURVE,
+  CUSTOM_CURVE_IDENTITY,
+  keyRecord,
   TRAVEL_MAX,
 } from "./protocol.mjs?v=studio-retrigger1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
-import { OWLAB_TI_TRAVEL_MM } from "./hall-curve.mjs?v=studio-owlab1";
+import { OWLAB_TI_TRAVEL_MM, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, setActiveCustomCurve, curveAsCustomTable } from "./hall-curve.mjs?v=studio-owlab1";
+import { mountCurveEditor } from "./curve-editor.mjs?v=studio-custom-curve1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
 import { inputBinding, inputBindingLabel, inputKeycapLabel, inputLabel } from "./input-labels.mjs?v=studio-default-layout1";
 import { noiseTargets, proposeNoiseSettings, sensorSeries, relativeSensorSeries } from "./sensor-settings.mjs?v=studio-sensor-lab1";
@@ -92,6 +96,10 @@ let adcApplied = [null, null];
 // ADC change; Studio never turns it off on its own and restores this choice after
 // its operations and measurements finish.
 let wantOutput = false, restorePending = false, lastOperationEnd = -Infinity;
+// Firmware 0.3.46+ shared custom curve: the keyboard's table and whether the
+// user has drawn or picked a draft, or chosen a curve kind, since then.
+let deviceCurve = null, curveDrawn = false, curveKindTouched = false;
+const curveSupported = () => connected && !!(info?.capabilities & CAP_CUSTOM_CURVE);
 const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TUNING);
 const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
 const comparingAdc = () => adcTuningSupported() && selected < 7 && $("diagnosticAdcCompare").checked;
@@ -611,6 +619,13 @@ function controls() {
   $("applyAdcTuning").title = !adcPairSupported() ? "좌우 설정을 지원하는 펌웨어가 필요합니다." :
     !latest[1]?.fresh ? "오른쪽 키보드 연결이 필요합니다." : "";
   $("noise").disabled = $("noiseScope").disabled = !mutable || !hall();
+  $("curveEditor").hidden = !curveSupported();
+  const curveEditable = mutable && hall() && curveSupported() && !!deviceCurve && !!profile;
+  curveEditor.setEnabled(curveEditable);
+  for (const id of ["curveKind", "curveScope", "curvePresetLinear", "curvePresetOwlab"]) $(id).disabled = !curveEditable;
+  $("curvePresetDevice").disabled = !curveEditable || !curveEditor.dirty();
+  const pendingCurve = curveEditable ? curveChanges() : null;
+  $("applyCurve").disabled = !pendingCurve || (!pendingCurve.writeTable && !pendingCurve.keys.length);
   $("applyNoise").disabled = !mutable || !hall() || !noiseDirty || !$("noise").value.trim() || !$("noise").checkValidity();
   for (const id of ["outputOff", "save", "refresh", "export", "import"])
     $(id).disabled = !mutable;
@@ -795,8 +810,94 @@ async function refresh() {
   profile = await client.getConfig();
   infoView(await client.info());
   if (adcTuningSupported()) showAdcTuning(await client.adcTuning());
+  await loadDeviceCurve();
   renderSelection();
 }
+async function loadDeviceCurve() {
+  if (!curveSupported()) {
+    deviceCurve = null;
+    setActiveCustomCurve(CUSTOM_CURVE_IDENTITY);
+    curveEditor.setDevice(null);
+    return;
+  }
+  deviceCurve = setActiveCustomCurve(await client.customCurve());
+  curveEditor.setDevice(deviceCurve);
+  if (!curveDrawn) curveEditor.setDraft(deviceCurve);
+}
+const curveEditor = mountCurveEditor($("curveCanvas"), {
+  onDraw() { curveDrawn = true; $("curveKind").value = String(HALL_CURVE_CUSTOM); curveKindTouched = true; controls(); },
+  onHover(point) {
+    if (!point) { renderCurveReadout(); return; }
+    const codes = point.codes === null ? "" : ` · 쉼 위 ${point.codes} 코드`;
+    $("curveReadout").textContent = `신호 ${(point.signal / 100).toFixed(1)}%${codes} → ` +
+      point.names.map((name, i) => `${name} ${point.mm[i].toFixed(3)} mm`).join(" · ");
+  },
+});
+function curveTargets() {
+  return hall() && profile ? noiseTargets($("curveScope").value, selected) : [];
+}
+function renderCurveReadout() {
+  const key = profile?.keys[selected];
+  if (!curveSupported()) { $("curveReadout").textContent = "커스텀 곡선은 펌웨어 0.3.46 이상에서 사용할 수 있습니다."; return; }
+  if (!key || !hall()) { $("curveReadout").textContent = "Hall 키를 선택하세요."; return; }
+  const names = ["직선", "Owlab Ti 근사", "커스텀"];
+  $("curveReadout").textContent = `${mappedInputLabel(selected)} · 현재 곡선 ${names[key.curve_id ?? 0]}` +
+    (key.flags & 4 ? ` · 보정 범위 ${Math.abs(key.pressed - key.released)} 코드` : " · 보정 전 (가로축 코드 미표시)") +
+    " · 그래프 위에 마우스를 올리면 값을 보여 줍니다.";
+}
+function renderCurveEditor() {
+  if (activeTab !== "diagnostics" || $("curveEditor").hidden) return;
+  const key = hall() ? profile?.keys[selected] : null;
+  if (key && !curveKindTouched) $("curveKind").value = String(key.curve_id ?? 0);
+  const calibrated = !!(key && key.flags & 4);
+  const span = calibrated ? Math.abs(key.pressed - key.released) : null;
+  const status = hall() ? latest[INPUTS[selected].side] : null;
+  let liveSignal = null;
+  if (calibrated && status?.fresh) {
+    const raw = status.raw[selected % 7], sign = Math.sign(key.pressed - key.released);
+    liveSignal = Math.round(((raw - key.released) * sign / span) * 10000);
+  }
+  curveEditor.setContext({ travelMm: hall() ? travelMm[selected] : 4, span, liveSignal,
+    actuation: key ? key.actuation : null });
+  if (!$("curveReadout").dataset.hover) renderCurveReadout();
+}
+$("curveCanvas").addEventListener("pointerenter", () => { $("curveReadout").dataset.hover = "1"; });
+$("curveCanvas").addEventListener("pointerleave", () => { delete $("curveReadout").dataset.hover; renderCurveReadout(); });
+$("curveKind").onchange = () => { curveKindTouched = true; controls(); };
+$("curveScope").onchange = () => controls();
+$("curvePresetDevice").onclick = () => { if (deviceCurve) { curveEditor.setDraft(deviceCurve); curveDrawn = false; controls(); } };
+$("curvePresetLinear").onclick = () => { curveEditor.setDraft(curveAsCustomTable(HALL_CURVE_LINEAR)); curveDrawn = true; $("curveKind").value = "2"; curveKindTouched = true; controls(); };
+$("curvePresetOwlab").onclick = () => { curveEditor.setDraft(curveAsCustomTable(HALL_CURVE_OWLAB_TI)); curveDrawn = true; $("curveKind").value = "2"; curveKindTouched = true; controls(); };
+function curveChanges() {
+  const kind = Number($("curveKind").value);
+  const writeTable = kind === HALL_CURVE_CUSTOM && curveEditor.dirty();
+  const keys = curveTargets().filter((id) => (profile.keys[id].curve_id ?? 0) !== kind);
+  return { kind, writeTable, keys };
+}
+$("applyCurve").onclick = () => {
+  if ($("applyCurve").disabled) return;
+  action(async () => {
+    const { kind, writeTable, keys } = curveChanges();
+    if (writeTable) {
+      if (await client.output(false) !== false) throw Error("키 출력 해제를 확인하지 못했습니다.");
+      deviceCurve = setActiveCustomCurve(await client.setCustomCurve(curveEditor.draft()));
+      curveEditor.setDevice(deviceCurve);
+      curveDrawn = false;
+    }
+    if (keys.length) {
+      const candidates = keys.map((id) => keyRecord({ ...profile.keys[id], curve_id: kind }));
+      const outcome = await applyPerformanceSettings(client, profile, candidates);
+      if (outcome.profile) profile = outcome.profile;
+      if (!outcome.complete) throw Error(outcome.error || "곡선 설정의 적용값을 확인하지 못했습니다.");
+    }
+    curveKindTouched = false;
+    telemetry.clear(); adcComparison = [];
+    measure.reset(); renderMeasurement();
+    renderSelection();
+    const names = ["직선", "Owlab Ti 근사", "커스텀"];
+    log(`${writeTable ? "커스텀 곡선 표를 바꾸고 " : ""}${keys.length}개 키를 ${names[kind]} 곡선으로 RAM 적용 확인 · 영구 저장은 별도입니다.`);
+  });
+};
 const adcWindowLabel = (window) => window === 1 ? "Raw" : `${window}프레임`;
 function renderAdcWindows() {
   const rows = CONTROLS.filter((control) => control.type === "hall" && control.side === 0).map((control, key) => {
@@ -1112,6 +1213,9 @@ async function disconnect({ quiet = false } = {}) {
   info = null;
   connected = false;
   noiseDirty = false; noiseTargetKey = "";
+  deviceCurve = null; curveDrawn = curveKindTouched = false;
+  setActiveCustomCurve(CUSTOM_CURVE_IDENTITY);
+  curveEditor.setDevice(null);
   clearTelemetry();
   $("mode").textContent = "연결 안 됨";
   $("releaseNotice").hidden = true;
@@ -1601,6 +1705,7 @@ function renderLiveImpact(now) {
   c.restore(); c.fillText(`−${diagnosticWindow() / 1000}초`, L, h - 9); c.fillText("현재", R - 22, h - 9);
 }
 function renderDiagnostics() {
+  renderCurveEditor();
   if (!hall() || activeTab !== "diagnostics") return;
   const now = performance.now();
   const compare = comparingAdc();

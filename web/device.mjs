@@ -26,6 +26,9 @@ import {
   keyRecord,
   requireBindingCapability,
   requireKeyCapability,
+  CAP_CUSTOM_CURVE,
+  encodeCustomCurve,
+  decodeCustomCurve,
 } from "./protocol.mjs?v=studio-retrigger1";
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));
 // Native HID open/close promises are not cancellable. Share a per-object
@@ -249,9 +252,10 @@ export class KeyboardClient {
   async request(op, payload = new Uint8Array(), timeout = 1500) {
     // FirmwareClient owns update confirmation and sequencing. Right update
     // INFO also pauses scan/output, so it must not enter through this client.
-    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR)))
+    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR) || op === OP.CUSTOM_CURVE))
       throw Error("지원하지 않는 설정 명령입니다. 펌웨어 업데이트는 전용 업데이터를 사용하세요.");
-    if ([4, 5, 6, 7, 8, 10].includes(op) && !this.identified) {
+    const curveWrite = op === OP.CUSTOM_CURVE && payload.length > 0;
+    if (([4, 5, 6, 7, 8, 10].includes(op) || op === OP.CUSTOM_CURVE) && !this.identified) {
       this.deviceInfo = decodeInfo(await this.request(OP.INFO));
       this.identified = true;
     }
@@ -265,7 +269,7 @@ export class KeyboardClient {
       if (p.op !== (op | 128) || p.seq !== this.seq)
         throw Error("거래번호 불일치");
       if (p.status) throw Error(STATUS_NAMES[p.status] || `status ${p.status}`);
-      if ([4, 5, 6, 7, 8, 10].includes(op)) this.outputEnabled = false;
+      if ([4, 5, 6, 7, 8, 10].includes(op) || curveWrite) this.outputEnabled = false;
       return p.payload;
     } catch (e) {
       this.outputEnabled = false;
@@ -364,6 +368,27 @@ export class KeyboardClient {
       requireKeyCapability(keyRecord(key), this.deviceInfo.capabilities);
       const legacy = this.legacyTravel;
       return decodeKey(await this.request(OP.SET_KEY, encodeKey(key, legacy)), legacy);
+    });
+  }
+  // Firmware 0.3.46+: the shared curve_id 2 table. A write is RAM only and,
+  // like SET_KEY, releases keys and turns output off.
+  customCurve() {
+    return this.run(async () => {
+      const deviceInfo = await this._identity();
+      if (!(deviceInfo.capabilities & CAP_CUSTOM_CURVE))
+        throw Error("커스텀 거리 곡선은 펌웨어 0.3.46 이상이 필요합니다.");
+      return decodeCustomCurve(await this.request(OP.CUSTOM_CURVE));
+    });
+  }
+  setCustomCurve(points) {
+    const bytes = encodeCustomCurve(points);
+    return this.run(async () => {
+      const deviceInfo = await this._identity();
+      if (!(deviceInfo.capabilities & CAP_CUSTOM_CURVE))
+        throw Error("커스텀 거리 곡선은 펌웨어 0.3.46 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
+      const echoed = decodeCustomCurve(await this.request(OP.CUSTOM_CURVE, bytes));
+      if (echoed.some((value, i) => value !== points[i])) throw Error("커스텀 곡선 응답이 요청과 다릅니다.");
+      return echoed;
     });
   }
   setBinding(binding) {

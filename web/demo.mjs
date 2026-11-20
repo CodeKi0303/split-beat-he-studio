@@ -8,6 +8,10 @@ import {
   CAP_SAVE_OUTPUT,
   CAP_RETRIGGER_BEFORE_RELEASE,
   CAP_FINE_TRAVEL,
+  CAP_CUSTOM_CURVE,
+  CUSTOM_CURVE_IDENTITY,
+  encodeCustomCurve,
+  decodeCustomCurve,
   TRAVEL_MAX,
   LEGACY_TRAVEL_SCALE,
   packet,
@@ -42,7 +46,7 @@ const fresh = () =>
 export function demoRTState(filtered = null) {
   return { filtered, travel: 0, extreme: 0, pressed: false, rapidCycle: false, retriggerTrough: null, retriggered: false };
 }
-export function demoRTStep(state, key, raw) {
+export function demoRTStep(state, key, raw, customCurve = undefined) {
   const before = state.pressed, previousTravel = state.travel;
   state.retriggered = false;
   if (state.filtered === null || Math.abs(raw - state.filtered) >= key.noise_deadband)
@@ -57,7 +61,7 @@ export function demoRTStep(state, key, raw) {
     state.retriggerTrough = null;
     return state;
   }
-  state.travel = rawToTravel(state.filtered, key);
+  state.travel = rawToTravel(state.filtered, key, customCurve);
   if ((key.flags & 5) !== 5 || state.travel <= key.top_deadzone) {
     state.pressed = false;
     state.rapidCycle = false;
@@ -149,6 +153,7 @@ export class DemoTransport {
   }
   async reconnect() {
     this.profile = structuredClone(this.stored);
+    this.customCurve = [...(this.storedCurve ?? CUSTOM_CURVE_IDENTITY)];
     this.enabled = this.storedOutput;
     this.dirty = false;
     this.resetRT();
@@ -185,7 +190,7 @@ export class DemoTransport {
       if (p.length) throw Error();
       let [a, v] = out(34);
       a.set([0, 3, 22, 0, 14, 6, 4, 28]);
-      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL, this.generation, 0].forEach((x, i) =>
+      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL | CAP_CUSTOM_CURVE, this.generation, 0].forEach((x, i) =>
         v.setUint32(8 + i * 4, x, true),
       );
       v.setUint16(28, 1024, true);
@@ -206,7 +211,7 @@ export class DemoTransport {
         const neighboring = this.pose.reduce((sum, x, j) => sum + (j === key ? 0 : x), 0) * 0.001;
         const raw = Math.round(1000 + pose * 2 + Math.sin(t * 31 + key) * 2 + neighboring);
         rawSamples.push(raw);
-        const state = demoRTStep(this.rt[key], this.profile.keys[key], raw);
+        const state = demoRTStep(this.rt[key], this.profile.keys[key], raw, this.customCurve ?? undefined);
         if (state.pressed) this.pressedMask |= 1 << key;
       }
       for (let i = 0; i < 7; i++) {
@@ -241,6 +246,15 @@ export class DemoTransport {
       this.dirty = true;
       this.resetRT();
       return encodeKey(k, this.wireLegacy);
+    }
+    if (op === OP.CUSTOM_CURVE) {
+      if (p.length) {
+        this.customCurve = decodeCustomCurve(p);
+        this.enabled = false;
+        this.dirty = true;
+        this.resetRT();
+      }
+      return encodeCustomCurve(this.customCurve ?? CUSTOM_CURVE_IDENTITY);
     }
     if (op === OP.SET_BINDING) {
       let b = decodeBinding(p);
@@ -293,6 +307,7 @@ export class DemoTransport {
     if (op === OP.SAVE) {
       if (p.length) throw Error();
       this.stored = structuredClone(this.profile);
+      this.storedCurve = [...(this.customCurve ?? CUSTOM_CURVE_IDENTITY)];
       this.storedOutput = this.enabled;
       this.enabled = false;
       this.resetRT();

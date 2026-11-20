@@ -34,6 +34,37 @@ export const CAP_TELEMETRY = 0x100000;
 export const TELEMETRY_CONTROL = 0x4a;
 export const TELEMETRY_READ = 0x4b;
 const TELEMETRY_KINDS = ["sample", "decision", "usb"];
+// Firmware 0.3.46+: curve_id 2 selects one shared user-drawn table. 0x4C reads it
+// (empty payload) or replaces it in RAM (15 x u16 outputs at signal 625..9375;
+// the endpoints are always 0 and 10000). Mirrors host/protocol.py and src/config.c.
+export const CAP_CUSTOM_CURVE = 0x200000;
+export const CUSTOM_CURVE_POINTS = 15;
+export const CUSTOM_CURVE_STEP = 625;
+export const CUSTOM_CURVE_IDENTITY = Object.freeze(Array.from({ length: CUSTOM_CURVE_POINTS }, (_, i) => (i + 1) * CUSTOM_CURVE_STEP));
+export function customCurveRecord(points) {
+  if (!Array.isArray(points) || points.length !== CUSTOM_CURVE_POINTS)
+    throw Error(`커스텀 곡선은 점 ${CUSTOM_CURVE_POINTS}개가 필요합니다.`);
+  let previous = 0;
+  return points.map((value, index) => {
+    if (!Number.isInteger(value) || value < 0 || value > TRAVEL_MAX)
+      throw Error(`커스텀 곡선 ${index + 1}번째 점은 0–${TRAVEL_MAX} 정수여야 합니다.`);
+    if (value < previous) throw Error("커스텀 곡선은 깊어질수록 줄어들 수 없습니다.");
+    previous = value;
+    return value;
+  });
+}
+export function encodeCustomCurve(points) {
+  const values = customCurveRecord(points), out = new Uint8Array(2 * CUSTOM_CURVE_POINTS);
+  const view = new DataView(out.buffer);
+  values.forEach((value, i) => view.setUint16(2 * i, value, true));
+  return out;
+}
+export function decodeCustomCurve(payload) {
+  if (!(payload instanceof Uint8Array) || payload.byteLength !== 2 * CUSTOM_CURVE_POINTS)
+    throw Error("커스텀 곡선 응답 길이가 올바르지 않습니다.");
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  return customCurveRecord(Array.from({ length: CUSTOM_CURVE_POINTS }, (_, i) => view.getUint16(2 * i, true)));
+}
 export function encodeTelemetryControl(enable, threshold = 4, intervalUs = 1000) {
   if (enable === undefined || enable === null) return new Uint8Array(0);
   if (typeof enable !== "boolean") throw new Error("Telemetry enable must be boolean");
@@ -238,6 +269,7 @@ export const OP = {
   ADC_TUNING: 0x47,
   ADC_COMPARE: 0x48,
   ADC_PAIR: 0x49,
+  CUSTOM_CURVE: 0x4c,
 };
 export const KEY_FIELDS = [
   "key",
@@ -339,7 +371,7 @@ export function keyRecord(o) {
   integer(d.top_deadzone, 0, d.actuation - 1, "top_deadzone");
   integer(d.bottom_deadzone, 0, TRAVEL_MAX - d.actuation, "bottom_deadzone");
   integer(d.noise_deadband, 0, 100, "noise");
-  integer(d.curve_id, 0, 1, "curve_id");
+  integer(d.curve_id, 0, 2, "curve_id");
   if (d.flags & 4 && Math.abs(d.released - d.pressed) < 128)
     throw Error("보정 ADC 범위는 128 이상이어야 합니다");
   return d;
@@ -378,6 +410,8 @@ export function requireKeyCapability(key, capabilities) {
     throw Error("미해제 재입력은 이를 지원하는 C86 펌웨어 0.3.37 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   if (key.curve_id && !(capabilities & CAP_HALL_CURVE))
     throw Error("비선형 거리 보정은 펌웨어 0.3.5 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
+  if (key.curve_id === 2 && !(capabilities & CAP_CUSTOM_CURVE))
+    throw Error("커스텀 거리 곡선은 펌웨어 0.3.46 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   if (key.bottom_deadzone && !(capabilities & CAP_BOTTOM_DEADZONE))
     throw Error("하단 데드존은 펌웨어 0.3.4 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
 }
