@@ -69,7 +69,13 @@ const schedulerView = new DataView(schedulerPayload.buffer, schedulerPayload.byt
 const schedulerValues = [0xfffffffe, 2, 30, 4, 5, 6, 7, 15, 9, 10, 11, 12, 13];
 schedulerValues.forEach((value, i) => schedulerView.setUint32(i * 4, value, true));
 assert.deepEqual(decodeSchedulerDiagnostics(schedulerPayload),
-  Object.fromEntries(SCHEDULER_FIELDS.map((name, i) => [name, schedulerValues[i]])));
+  {...Object.fromEntries(SCHEDULER_FIELDS.map((name, i) => [name, schedulerValues[i]])),
+    cc_current_error: 7, cc_last_error: 0, cc_retries: 0, link_restarts: 0});
+schedulerView.setUint32(24, 0x02050402, true);
+assert.deepEqual((({cc_current_error, cc_last_error, cc_retries, link_restarts}) =>
+  ({cc_current_error, cc_last_error, cc_retries, link_restarts}))(decodeSchedulerDiagnostics(schedulerPayload)),
+  {cc_current_error: 2, cc_last_error: 4, cc_retries: 5, link_restarts: 2});
+schedulerView.setUint32(24, 7, true);
 for (const length of [0, 4, 48, 51, 53, 56])
   assert.throws(() => decodeSchedulerDiagnostics(new Uint8Array(length)), /52 bytes/);
 schedulerView.setUint32(28, 16, true);

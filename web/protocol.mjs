@@ -213,7 +213,10 @@ export function decodeSchedulerDiagnostics(payload) {
   const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
   const result = Object.fromEntries(SCHEDULER_FIELDS.map((name, i) => [name, view.getUint32(i * 4, true)]));
   if (result.link_flags & ~15) throw new Error("Unknown scheduler link flags");
-  return result;
+  // cc_error stays the raw word; firmware 0.3.45+ packs boot-lifetime fault evidence above it.
+  const word = result.cc_error;
+  return {...result, cc_current_error: word & 0xff, cc_last_error: (word >>> 8) & 0xff,
+    cc_retries: (word >>> 16) & 0xff, link_restarts: word >>> 24};
 }
 export const ADC_DIAGNOSTIC_FIELDS = [
   "running", "sample_sequence", "errors", "overruns", "dma_errors", "late_irqs",
