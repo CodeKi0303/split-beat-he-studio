@@ -28,6 +28,60 @@ export const TRAVEL_MAX = 10000;
 export const LEGACY_TRAVEL_MAX = 1000;
 export const LEGACY_TRAVEL_SCALE = TRAVEL_MAX / LEGACY_TRAVEL_MAX;
 export const TRAVEL_FIELDS = ["actuation", "rt_press", "rt_release", "top_deadzone", "bottom_deadzone"];
+// C86 left v0.3.44+: opt-in input telemetry (0x4A control, 0x4B read). Studio does not
+// use it; the codec is kept in sync with host/telemetry.py and src/telemetry.c.
+export const CAP_TELEMETRY = 0x100000;
+export const TELEMETRY_CONTROL = 0x4a;
+export const TELEMETRY_READ = 0x4b;
+const TELEMETRY_KINDS = ["sample", "decision", "usb"];
+export function encodeTelemetryControl(enable, threshold = 4, intervalUs = 1000) {
+  if (enable === undefined || enable === null) return new Uint8Array(0);
+  if (typeof enable !== "boolean") throw new Error("Telemetry enable must be boolean");
+  if (enable && (!Number.isInteger(threshold) || threshold < 1 || threshold > 255 ||
+      !Number.isInteger(intervalUs) || intervalUs < 0 || intervalUs > 10000))
+    throw new Error("Telemetry threshold must be 1..255 and interval 0..10000 us");
+  const out = new Uint8Array(4);
+  if (enable) { out[0] = 1; out[1] = threshold; out[2] = intervalUs & 255; out[3] = intervalUs >> 8; }
+  return out;
+}
+export function decodeTelemetryControl(payload) {
+  if (!(payload instanceof Uint8Array) || payload.byteLength !== 20)
+    throw new Error("Telemetry control reply must contain 20 bytes");
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (payload[0] > 1 || !view.getUint32(4, true)) throw new Error("Invalid telemetry control reply");
+  return {armed: payload[0] === 1, threshold: payload[1], interval_us: view.getUint16(2, true),
+    capacity: view.getUint32(4, true), device_now_us: view.getUint32(8, true),
+    dropped: view.getUint32(12, true), pending: view.getUint32(16, true)};
+}
+export function decodeTelemetryRead(payload) {
+  if (!(payload instanceof Uint8Array) || payload.byteLength < 14)
+    throw new Error("Telemetry read reply must contain at least 14 bytes");
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const count = payload[12], flags = payload[13];
+  if (count > 8 || payload.byteLength !== 14 + count * 5 || (flags & ~3))
+    throw new Error("Invalid telemetry read reply");
+  let time = view.getUint32(4, true);
+  const records = Array.from({length: count}, (_, i) => {
+    const offset = 14 + i * 5, delta = view.getInt16(offset, true);
+    if (i === 0 && delta) throw new Error("First telemetry record must have zero delta");
+    time = (time + delta) >>> 0;
+    const kind = payload[offset + 2] >> 6, index = payload[offset + 2] & 63, value = view.getUint16(offset + 3, true);
+    if (kind > 2) throw new Error("Unknown telemetry record kind");
+    if (kind === 0) {
+      if (index >= 14 || value > 4095) throw new Error("Invalid telemetry sample");
+      return {device_us: time, kind: "sample", key: index, raw: value};
+    }
+    if (kind === 1) {
+      if (index >= 14 || (value & 0x3fff) > TRAVEL_MAX) throw new Error("Invalid telemetry decision");
+      return {device_us: time, kind: "decision", key: index, travel: value & 0x3fff,
+        retriggered: Boolean(value & 0x4000), pressed: Boolean(value & 0x8000)};
+    }
+    if (value & ~0x1ff) throw new Error("Invalid telemetry USB change");
+    return {device_us: time, kind: TELEMETRY_KINDS[kind], usage: value & 255, pressed: Boolean(value & 0x100)};
+  });
+  return {device_now_us: view.getUint32(0, true), base_us: view.getUint32(4, true),
+    dropped: view.getUint32(8, true), armed: Boolean(flags & 1), more: Boolean(flags & 2), records};
+}
 export const ADC_SCAN_RATES = [8000, 16000, 32000, 64000, 96000];
 export const ADC_WINDOWS = [0, 1, 2, 4, 6, 8];
 // Read-only C86 left v0.3.8+ ADC stop snapshot; not simulated by demo mode.
