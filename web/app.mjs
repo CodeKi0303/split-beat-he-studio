@@ -123,6 +123,9 @@ let batchOriginal = null,
 const batchActive = () => ["baseline", "press"].includes(batch.state);
 let drawnMeasurement = null;
 const hall = () => selected < 14;
+// Hall keys that are enabled but have no stored calibration (flag bit 2).
+const uncalibratedHall = () =>
+  profile?.keys.filter((k) => k.flags & 1 && !(k.flags & 4)).map((k) => k.key) ?? [];
 const mappedInputLabel = (id) => inputLabel(id, profile?.bindings);
 const calibrationActive = () =>
   !!calStage || latest.some((s) => s?.calibration_state > 0);
@@ -421,6 +424,21 @@ function renderBoard() {
   renderMappingSource();
   const calibrated = profile?.keys.filter((k) => k.flags & 4).length ?? 0;
   $("calProgress").textContent = `보정 ${calibrated} / 14`;
+  renderCalibrationNeeded();
+}
+function renderCalibrationNeeded() {
+  const missing = connected ? uncalibratedHall() : [];
+  $("calBadge").hidden = !missing.length;
+  $("calBadge").textContent = missing.length ? String(missing.length) : "";
+  $("calBadge").title = missing.length ? `보정 안 된 키 ${missing.length}개` : "";
+  $("calibrationNeeded").hidden = !missing.length;
+  if (!missing.length) return;
+  $("calibrationNeededTitle").textContent = missing.length === 14
+    ? "아직 캘리브레이션하지 않은 키보드입니다"
+    : `보정되지 않은 키 ${missing.length}개`;
+  $("calibrationNeededKeys").textContent = missing.length === 14
+    ? "키가 정확히 눌리려면 처음 한 번 보정이 필요합니다. 아래 순서대로 보정한 뒤 ‘키보드에 저장’을 누르세요."
+    : `${missing.map((id) => inputKeycapLabel(id, profile?.bindings)).join(" · ")} — 아래 순서대로 보정한 뒤 ‘키보드에 저장’을 누르세요.`;
 }
 function renderMappingSource() {
   $("mappingSource").textContent = profile
@@ -1166,9 +1184,11 @@ function outputHeldOff() {
 }
 function outputErrorMessage(error) {
   if (error?.message === "BUSY")
-    return "오른쪽 보드 연결이 한 번 끊긴 뒤라 펌웨어가 좌우 ADC 설정 확인을 기다리고 있습니다. 센서 진단/설정에서 'ADC 설정 적용'을 한 번 누른 뒤 다시 켜세요.";
+    return "오른쪽 보드 연결이 한 번 끊긴 뒤라 펌웨어가 좌우 ADC 설정 확인을 기다리고 있습니다. 센서 진단/설정의 ADC 설정에서 '좌우에 적용'을 한 번 누른 뒤 다시 켜세요.";
   if (error?.message === "NOT_READY")
-    return "좌우 센서가 아직 준비되지 않았거나, 보정하지 않은 활성 Hall 키가 있어 출력을 켤 수 없습니다.";
+    return uncalibratedHall().length
+      ? `보정하지 않은 Hall 키가 ${uncalibratedHall().length}개 있어 출력을 켤 수 없습니다. 캘리브레이션에서 보정하세요.`
+      : "좌우 센서가 아직 준비되지 않아 출력을 켤 수 없습니다. 잠시 뒤 다시 켜세요.";
   return error?.message ?? String(error);
 }
 async function restoreOutput() {
@@ -1291,7 +1311,12 @@ async function connect() {
     await refresh();
     wantOutput = (await client.status(0)).output_enabled;
     restorePending = false;
-    log("연결했습니다. 설정할 키를 선택하세요.");
+    const missing = uncalibratedHall();
+    if (missing.length && activeTab !== "firmware") {
+      setTab("calibration");
+      log(`보정되지 않은 키가 ${missing.length}개 있어 캘리브레이션 화면을 열었습니다.`);
+    } else log("연결했습니다. 설정할 키를 선택하세요.");
+    renderCalibrationNeeded();
     timer = setInterval(poll, 8);
   } catch (e) {
     if (transport) await transport.close().catch(() => {});

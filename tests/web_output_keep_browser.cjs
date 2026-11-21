@@ -104,7 +104,7 @@ let browser;
   // OUTPUT ON refused with BUSY explains the ADC pair recovery.
   await page.evaluate(() => { window.__output.busyOnEnable = true; });
   await page.locator("#outputOn").click();
-  await notice("ADC 설정 적용");
+  await notice("좌우에 적용");
   assert.equal(await deviceOutput(), false);
   assert.deepEqual(errors, []);
   console.log("Output keep: disconnect without OFF, restore after settings writes, user OFF respected, BUSY guidance PASS (fake HID only)");

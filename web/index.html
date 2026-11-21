@@ -31,7 +31,7 @@
           <span>↕</span> 작동점 · RT
         </button>
         <button class="nav" data-tab="calibration" aria-selected="false">
-          <span>◎</span> 캘리브레이션
+          <span>◎</span> 캘리브레이션<em id="calBadge" class="nav-badge" hidden></em>
         </button>
         <button class="nav" data-tab="diagnostics" aria-selected="false">
           <span>⌁</span> 센서 진단/설정
@@ -47,6 +47,7 @@
         </button>
       </nav>
       <div class="sidebar-bottom">
+        <a class="guide-link" href="https://docs.codekilab.com/" target="_blank" rel="noopener">사용 설명서 ↗</a>
         <strong>NKRO</strong><small id="timing">센서 연결 대기</small>
       </div>
     </aside>
@@ -369,6 +370,10 @@
             <h2>전체 Hall 키를 한 번에 보정</h2>
           </div>
           <span class="pill">일반 키 · 휠 제외</span>
+        </div>
+        <div id="calibrationNeeded" class="cal-needed" role="status" hidden>
+          <strong id="calibrationNeededTitle">보정이 필요한 키가 있습니다</strong>
+          <span id="calibrationNeededKeys"></span>
         </div>
         <p>
           손을 떼고 시작한 뒤, 각 키를 끝까지 눌러 주세요. 누른 키부터 적용할 수 있습니다.

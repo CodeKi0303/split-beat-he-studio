@@ -20,6 +20,7 @@ let browser;
   await page.locator("#connect").click();
   await page.waitForFunction(() => document.querySelector("#mode").textContent.startsWith("연결됨"), null, { timeout: 8000 });
   await page.waitForFunction(() => !document.querySelector("#refresh").disabled);
+  await page.locator('.nav[data-tab="mapping"]').click(); // uncalibrated simulator opens calibration first
   const notice = (text) => page.waitForFunction((t) => document.querySelector("#notice").textContent.includes(t), text, { timeout: 8000 });
   const target = (kind, code) => page.locator(`#bindingPicker [data-kind="${kind}"][data-code="${code}"]:visible`);
 
