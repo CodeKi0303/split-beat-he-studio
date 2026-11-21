@@ -175,3 +175,7 @@ button.binding-picker-mouse-right {
     min-block-size: 255px;
   }
 }
+
+.binding-picker-pointer { margin-top: 8px; }
+.pointer-speed { display:flex; align-items:center; gap:8px; margin:10px 0 0; font-size:12px; color:var(--muted); }
+.pointer-speed input { width:96px; }

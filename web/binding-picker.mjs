@@ -120,7 +120,10 @@ export function mountBindingPicker(root, { onPick }) {
   const pan = node("div", "binding-picker-mouse-pan");
   pan.append(target(3, -1, "←", "가로 스크롤 왼쪽"), node("span", "", "가로 스크롤"),
     target(3, 1, "→", "가로 스크롤 오른쪽"));
-  mouse.append(shell, pan);
+  const pointer = node("div", "binding-picker-mouse-pan binding-picker-pointer");
+  pointer.append(target(7, -1, "←", "포인터 왼쪽"), target(7, -2, "↑", "포인터 위"), node("span", "", "포인터 이동"),
+    target(7, 2, "↓", "포인터 아래"), target(7, 1, "→", "포인터 오른쪽"));
+  mouse.append(shell, pan, pointer);
 
   const media = node("div", "binding-picker-media");
   media.setAttribute("role", "group");
@@ -133,7 +136,7 @@ export function mountBindingPicker(root, { onPick }) {
   function render({ kind, codes = [], modifiers = 0, disabled = false }) {
     const keyboardActive = kind === 1 || kind === 6;
     keyboard.hidden = !keyboardActive;
-    mouse.hidden = kind !== 2 && kind !== 3 && kind !== 5;
+    mouse.hidden = ![2, 3, 5, 7].includes(kind);
     media.hidden = kind !== 4;
     const selected = new Set(codes);
     for (const { button, kind: targetKind, code } of targets) {

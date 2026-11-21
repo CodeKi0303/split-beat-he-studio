@@ -38,6 +38,12 @@ const TELEMETRY_KINDS = ["sample", "decision", "usb"];
 // (empty payload) or replaces it in RAM (15 x u16 outputs at signal 625..9375;
 // the endpoints are always 0 and 10000). Mirrors host/protocol.py and src/config.c.
 export const CAP_CUSTOM_CURVE = 0x200000;
+// Firmware 0.3.48+: binding kind 7 moves the mouse pointer. modifiers = axis
+// (0 X, 1 Y); code = signed speed 1..4000 (Hall: px/s at full depth, MX: px/s
+// ramping 30%->100% over 350 ms, encoder: px per detent). Mirrors host/protocol.py.
+export const CAP_POINTER = 0x400000;
+export const BINDING_POINTER = 7;
+export const POINTER_MAX = 4000;
 export const CUSTOM_CURVE_POINTS = 15;
 export const CUSTOM_CURVE_STEP = 625;
 export const CUSTOM_CURVE_IDENTITY = Object.freeze(Array.from({ length: CUSTOM_CURVE_POINTS }, (_, i) => (i + 1) * CUSTOM_CURVE_STEP));
@@ -430,7 +436,13 @@ export function bindingRecord(o) {
   fields(o, BIND_FIELDS);
   let d = { ...o };
   integer(d.input, 0, 27, "input");
-  integer(d.kind, 0, 5, "kind");
+  integer(d.kind, 0, 7, "kind");
+  if (d.kind === BINDING_POINTER) {
+    integer(d.code, -POINTER_MAX, POINTER_MAX, "pointer speed");
+    if (!d.code) throw Error("포인터 속도는 0일 수 없습니다");
+    integer(d.modifiers, 0, 1, "pointer axis");
+    return d;
+  }
   integer(d.code, -1, 65535, "code");
   integer(d.modifiers, 0, 255, "modifiers");
   if (d.kind === 0 && (d.code || d.modifiers))
@@ -452,6 +464,8 @@ export function bindingRecord(o) {
 export function requireBindingCapability(binding, capabilities) {
   if (binding.kind === 6 && !(capabilities & CAP_KEY_CHORD))
     throw Error("일반 키 여러 개를 함께 보내려면 조합키를 지원하는 C86 펌웨어가 필요합니다.");
+  if (binding.kind === BINDING_POINTER && !(capabilities & CAP_POINTER))
+    throw Error("포인터 이동은 펌웨어 0.3.48 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   const extended = binding.kind === 5 ||
     ([2, 3].includes(binding.kind) && binding.input < 20);
   if (extended && !(capabilities & CAP_MOUSE_BUTTON))
@@ -483,7 +497,7 @@ export function decodeBinding(a) {
   return bindingRecord({
     input: a[0],
     kind: a[1],
-    code: [2, 3].includes(a[1]) && code === 65535 ? -1 : code,
+    code: [2, 3].includes(a[1]) && code === 65535 ? -1 : a[1] === BINDING_POINTER && code >= 0x8000 ? code - 0x10000 : code,
     modifiers: a[4],
   });
 }

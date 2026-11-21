@@ -131,6 +131,10 @@ export function bindingLabel(binding) {
       return binding.code === 1 ? "가로 스크롤 →" : "가로 스크롤 ←";
     case 4:
       return mediaNames.get(binding.code) ?? hex(binding.code);
+    case 7: {
+      const arrow = binding.modifiers ? (binding.code > 0 ? "↓" : "↑") : (binding.code > 0 ? "→" : "←");
+      return `포인터 ${arrow} ${Math.abs(binding.code)}`;
+    }
     case 5:
       return (
         [

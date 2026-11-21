@@ -29,6 +29,7 @@ import {
   CAP_ADC_PAIR_READ,
   CAP_FINE_TRAVEL,
   CAP_CUSTOM_CURVE,
+  CAP_POINTER,
   CUSTOM_CURVE_IDENTITY,
   keyRecord,
   TRAVEL_MAX,
@@ -278,15 +279,23 @@ let bindingDraft = emptyBinding(1), pickerLocked = null;
 const picker = mountBindingPicker($("bindingPicker"), { onPick: pickBinding });
 const mappingReady = () => bindingDraft.kind === 0 ||
   bindingDraft.codes.length > 0 || bindingDraft.modifiers !== 0;
-const mappingMode = (kind) => [2, 3, 5].includes(kind) ? 5 : kind === 6 ? 1 : kind;
+const mappingMode = (kind) => [2, 3, 5, 7].includes(kind) ? 5 : kind === 6 ? 1 : kind;
+// Pointer speed default: px per detent on encoders, px/s on held inputs.
+const defaultPointerSpeed = () => selected >= 20 ? 20 : 800;
 function mappingValue() {
   const { kind, codes, modifiers } = bindingDraft;
+  if (kind === 7) {
+    const direction = codes[0] ?? 1, speed = bindingDraft.speed ?? defaultPointerSpeed();
+    return { input: selected, kind, code: Math.sign(direction) * speed, modifiers: Math.abs(direction) === 2 ? 1 : 0 };
+  }
   if (kind === 1 && codes.length > 1)
     return { input: selected, kind: 6, keys: [...codes].sort((a, b) => a - b), modifiers };
   return { input: selected, kind, code: codes[0] ?? 0, modifiers };
 }
 function mappingUnsupported() {
   const k = mappingValue().kind;
+  if (k === 7 && !(info?.capabilities & CAP_POINTER))
+    return "포인터 이동에는 왼쪽 키보드 펌웨어 v0.3.48 이상이 필요합니다.";
   if (k === 6 && !(info?.capabilities & CAP_KEY_CHORD))
     return "일반 키를 두 개 이상 함께 보내려면 조합키를 지원하는 왼쪽 C86 펌웨어가 필요합니다.";
   if (!(info?.capabilities & CAP_MOUSE_BUTTON) &&
@@ -301,7 +310,10 @@ function setMappingFeedback(message = "") {
 function pickBinding({ kind, code, shiftKey }) {
   if (mappingBlocked()) return;
   setMappingFeedback();
-  if (kind !== 1) {
+  if (kind === 7) {
+    bindingDraft = { kind, codes: [code], modifiers: 0,
+      speed: bindingDraft.kind === 7 ? bindingDraft.speed : defaultPointerSpeed() };
+  } else if (kind !== 1) {
     bindingDraft = { kind, codes: [code], modifiers: 0 };
   } else {
     const append = shiftKey && bindingDraft.kind === 1;
@@ -332,10 +344,15 @@ function renderPicker() {
 function renderMappingPreview() {
   const b = mappingValue();
   $("bindingPreview").textContent = mappingReady() ? bindingLabel(b) : "출력 선택";
+  $("pointerSpeedField").hidden = b.kind !== 7;
+  if (b.kind === 7) {
+    if (document.activeElement !== $("pointerSpeed")) $("pointerSpeed").value = String(Math.abs(b.code));
+    $("pointerSpeedUnit").textContent = selected >= 20 ? "px / 한 칸" : selected < 14 ? "px/s · 끝까지 눌렀을 때" : "px/s";
+  }
   const mode = mappingMode(b.kind);
   const help = mode === 1
     ? "Shift + 클릭으로 키를 추가하거나 뺍니다. Shift를 출력하려면 그림의 Shift도 선택하세요."
-    : mode === 5 ? "버튼이나 스크롤 방향을 클릭해 선택하세요."
+    : mode === 5 ? "버튼, 스크롤 또는 포인터 방향을 선택하세요."
     : mode === 4 ? "보낼 미디어 키를 선택하세요." : "";
   $("mappingHelp").textContent = help;
   $("mappingHelp").hidden = !help;
@@ -349,14 +366,22 @@ function renderBinding() {
   $("bindingTitle").textContent = `${mappedInputLabel(selected)} → 출력`;
   const b = inputBinding(selected, profile?.bindings) ?? { kind: 0, code: 0, modifiers: 0 };
   const bit = b.kind === 1 ? modifierBit(b.code) : 0;
-  bindingDraft = {
-    kind: b.kind === 6 ? 1 : b.kind,
-    codes: b.kind === 6 ? [...b.keys] : b.code && !bit ? [b.code] : [],
-    modifiers: b.modifiers | bit,
-  };
+  bindingDraft = b.kind === 7
+    ? { kind: 7, codes: [Math.sign(b.code) * (b.modifiers ? 2 : 1)], modifiers: 0, speed: Math.abs(b.code) }
+    : {
+      kind: b.kind === 6 ? 1 : b.kind,
+      codes: b.kind === 6 ? [...b.keys] : b.code && !bit ? [b.code] : [],
+      modifiers: b.modifiers | bit,
+    };
   setMappingFeedback();
   renderMappingPreview();
 }
+$("pointerSpeed").oninput = () => {
+  const speed = Number($("pointerSpeed").value);
+  if (bindingDraft.kind !== 7 || !Number.isInteger(speed) || speed < 1 || speed > 4000) return;
+  bindingDraft = { ...bindingDraft, speed };
+  renderMappingPreview();
+};
 for (const button of bindingModes) button.onclick = () => {
   const kind = Number(button.dataset.bindingMode);
   if (mappingBlocked() || kind === mappingMode(bindingDraft.kind)) return;
