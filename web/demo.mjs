@@ -10,6 +10,7 @@ import {
   CAP_FINE_TRAVEL,
   CAP_CUSTOM_CURVE,
   CAP_POINTER,
+  CAP_POINTER_ACCEL,
   CUSTOM_CURVE_IDENTITY,
   encodeCustomCurve,
   decodeCustomCurve,
@@ -191,7 +192,7 @@ export class DemoTransport {
       if (p.length) throw Error();
       let [a, v] = out(34);
       a.set([0, 3, 22, 0, 14, 6, 4, 28]);
-      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL | CAP_CUSTOM_CURVE | CAP_POINTER, this.generation, 0].forEach((x, i) =>
+      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL | CAP_CUSTOM_CURVE | CAP_POINTER | CAP_POINTER_ACCEL, this.generation, 0].forEach((x, i) =>
         v.setUint32(8 + i * 4, x, true),
       );
       v.setUint16(28, 1024, true);

@@ -16,4 +16,15 @@ assert.throws(() => requireBindingCapability({ input: 0, kind: 7, code: 100, mod
 requireBindingCapability({ input: 0, kind: 7, code: 100, modifiers: 0 }, CAP_POINTER);
 assert.equal(bindingLabel({ kind: 7, code: 800, modifiers: 0 }), "포인터 → 800");
 assert.equal(bindingLabel({ kind: 7, code: -5, modifiers: 1 }), "포인터 ↑ 5");
-console.log("Pointer binding: codec/wire layout, validation, capability gate and labels PASS");
+// 0.3.49 acceleration: last byte on encoder directions; omitted when 0.
+const accelRecord = { input: 20, kind: 7, code: -25, modifiers: 0, accel: 4 };
+assert.deepEqual([...encodeBinding(accelRecord)], [20, 7, 0xe7, 0xff, 0, 4]);
+assert.deepEqual(decodeBinding(encodeBinding(accelRecord)), accelRecord);
+assert.deepEqual(bindingRecord({ ...accelRecord, accel: 0 }), { input: 20, kind: 7, code: -25, modifiers: 0 });
+assert.throws(() => bindingRecord({ ...accelRecord, accel: 16 }));
+assert.throws(() => bindingRecord({ ...accelRecord, input: 4 }), /노브·롤러/);
+assert.throws(() => bindingRecord({ input: 1, kind: 2, code: 1, modifiers: 0, accel: 1 }));
+assert.throws(() => decodeBinding(Uint8Array.of(20, 2, 1, 0, 0, 3)), /reserved/);
+assert.throws(() => requireBindingCapability(accelRecord, CAP_POINTER), /0\.3\.49/);
+assert.equal(bindingLabel(accelRecord), "포인터 ← 25 · 가속 ×5");
+console.log("Pointer binding: codec/wire layout, validation, capability gate, labels and 0.3.49 acceleration PASS");

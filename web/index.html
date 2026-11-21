@@ -157,6 +157,8 @@
           <label id="pointerSpeedField" class="pointer-speed" hidden>포인터 속도
             <input id="pointerSpeed" type="number" min="1" max="4000" step="1" value="800" />
             <span id="pointerSpeedUnit">px/s</span></label>
+          <div id="pointerAccelField" class="pointer-speed" hidden>빠르게 돌릴 때 가속
+            <span id="pointerAccel" class="pointer-accel" role="group" aria-label="빠르게 돌릴 때 최대 배율"><button type="button" class="ghost" data-accel="0">끔</button><button type="button" class="ghost" data-accel="1">×2</button><button type="button" class="ghost" data-accel="2">×3</button><button type="button" class="ghost" data-accel="4">×5</button><button type="button" class="ghost" data-accel="8">×9</button><button type="button" class="ghost" data-accel="15">×16</button></span></div>
           <p id="mappingFeedback" class="warning" role="status" hidden></p>
           <p id="mappingCompatibility" class="warning" hidden></p>
           <div class="form-actions">

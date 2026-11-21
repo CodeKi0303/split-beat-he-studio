@@ -45,12 +45,19 @@ let browser;
   await target(7, -2).click();
   assert.equal(await page.locator("#pointerSpeed").inputValue(), "20");
   assert.equal(await page.locator("#pointerSpeedUnit").textContent(), "px / 한 칸");
+  assert.equal(await page.locator("#pointerAccelField").isVisible(), true, "rollers offer acceleration");
+  await page.locator('#pointerAccel [data-accel="4"]').click();
+  assert.equal(await page.locator("#bindingPreview").textContent(), "포인터 ↑ 20 · 가속 ×5");
   await page.locator("#applyBinding").click();
   await notice("키 매핑 RAM 적용 완료");
   assert.deepEqual(await page.evaluate(() => window.__studioTestHid.simulator.profile.bindings[20]),
-    { input: 20, kind: 7, code: -20, modifiers: 1 });
+    { input: 20, kind: 7, code: -20, modifiers: 1, accel: 4 });
 
-  // Reading back: reselecting the Hall key restores direction and speed.
+  // Reading back: reselecting restores direction, speed and acceleration.
+  await page.locator("#key-4").click();
+  assert.equal(await page.locator("#pointerAccelField").isVisible(), false, "Hall keys have no detents");
+  await page.locator("#key-20").click();
+  assert.equal(await page.locator('#pointerAccel [data-accel="4"]').getAttribute("aria-pressed"), "true");
   await page.locator("#key-4").click();
   assert.equal(await page.locator("#bindingPreview").textContent(), "포인터 → 1200");
   assert.equal(await target(7, 1).getAttribute("aria-pressed"), "true");

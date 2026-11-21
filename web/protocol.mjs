@@ -44,6 +44,11 @@ export const CAP_CUSTOM_CURVE = 0x200000;
 export const CAP_POINTER = 0x400000;
 export const BINDING_POINTER = 7;
 export const POINTER_MAX = 4000;
+// Firmware 0.3.49+: optional accel 1..15 on encoder pointer bindings (inputs
+// 20..27), in the last binding byte; omitted when 0. Gain 1 below 5 detents/s,
+// rising linearly to (1+accel)x at 40 detents/s.
+export const CAP_POINTER_ACCEL = 0x800000;
+export const POINTER_ACCEL_MAX = 15;
 export const CUSTOM_CURVE_POINTS = 15;
 export const CUSTOM_CURVE_STEP = 625;
 export const CUSTOM_CURVE_IDENTITY = Object.freeze(Array.from({ length: CUSTOM_CURVE_POINTS }, (_, i) => (i + 1) * CUSTOM_CURVE_STEP));
@@ -433,7 +438,8 @@ export function bindingRecord(o) {
       throw Error("조합키의 일반 키는 중복 없이 HID 코드 순서로 정렬해야 합니다");
     return { input, kind: 6, keys, modifiers };
   }
-  fields(o, BIND_FIELDS);
+  if (o?.kind === BINDING_POINTER && Object.hasOwn(o, "accel")) fields(o, [...BIND_FIELDS, "accel"]);
+  else fields(o, BIND_FIELDS);
   let d = { ...o };
   integer(d.input, 0, 27, "input");
   integer(d.kind, 0, 7, "kind");
@@ -441,6 +447,10 @@ export function bindingRecord(o) {
     integer(d.code, -POINTER_MAX, POINTER_MAX, "pointer speed");
     if (!d.code) throw Error("포인터 속도는 0일 수 없습니다");
     integer(d.modifiers, 0, 1, "pointer axis");
+    const accel = integer(d.accel ?? 0, 0, POINTER_ACCEL_MAX, "pointer acceleration");
+    if (accel && d.input < 20) throw Error("포인터 가속은 노브·롤러 방향 입력에만 쓸 수 있습니다");
+    if (accel) d.accel = accel;
+    else delete d.accel;
     return d;
   }
   integer(d.code, -1, 65535, "code");
@@ -466,6 +476,8 @@ export function requireBindingCapability(binding, capabilities) {
     throw Error("일반 키 여러 개를 함께 보내려면 조합키를 지원하는 C86 펌웨어가 필요합니다.");
   if (binding.kind === BINDING_POINTER && !(capabilities & CAP_POINTER))
     throw Error("포인터 이동은 펌웨어 0.3.48 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
+  if (binding.accel && !(capabilities & CAP_POINTER_ACCEL))
+    throw Error("포인터 가속은 펌웨어 0.3.49 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   const extended = binding.kind === 5 ||
     ([2, 3].includes(binding.kind) && binding.input < 20);
   if (extended && !(capabilities & CAP_MOUSE_BUTTON))
@@ -481,6 +493,7 @@ export function encodeBinding(o) {
   a[1] = d.kind;
   v.setUint16(2, d.code & 0xffff, true);
   a[4] = d.modifiers;
+  a[5] = d.accel ?? 0;
   return a;
 }
 export function decodeBinding(a) {
@@ -489,7 +502,7 @@ export function decodeBinding(a) {
     const keys = a[5] ? [a[2], a[3], a[5]] : [a[2], a[3]];
     return bindingRecord({ input: a[0], kind: 6, keys, modifiers: a[4] });
   }
-  if (a[5]) throw Error("binding reserved");
+  if (a[5] && a[1] !== BINDING_POINTER) throw Error("binding reserved");
   let code = new DataView(a.buffer, a.byteOffset, a.byteLength).getUint16(
     2,
     true,
@@ -499,6 +512,7 @@ export function decodeBinding(a) {
     kind: a[1],
     code: [2, 3].includes(a[1]) && code === 65535 ? -1 : a[1] === BINDING_POINTER && code >= 0x8000 ? code - 0x10000 : code,
     modifiers: a[4],
+    ...(a[1] === BINDING_POINTER && a[5] ? { accel: a[5] } : {}),
   });
 }
 // Profiles carry travel_max=10000. Older exports without it hold 0..1000

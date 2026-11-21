@@ -30,6 +30,7 @@ import {
   CAP_FINE_TRAVEL,
   CAP_CUSTOM_CURVE,
   CAP_POINTER,
+  CAP_POINTER_ACCEL,
   CUSTOM_CURVE_IDENTITY,
   keyRecord,
   TRAVEL_MAX,
@@ -286,7 +287,9 @@ function mappingValue() {
   const { kind, codes, modifiers } = bindingDraft;
   if (kind === 7) {
     const direction = codes[0] ?? 1, speed = bindingDraft.speed ?? defaultPointerSpeed();
-    return { input: selected, kind, code: Math.sign(direction) * speed, modifiers: Math.abs(direction) === 2 ? 1 : 0 };
+    const accel = selected >= 20 ? bindingDraft.accel ?? 0 : 0;
+    return { input: selected, kind, code: Math.sign(direction) * speed, modifiers: Math.abs(direction) === 2 ? 1 : 0,
+      ...(accel ? { accel } : {}) };
   }
   if (kind === 1 && codes.length > 1)
     return { input: selected, kind: 6, keys: [...codes].sort((a, b) => a - b), modifiers };
@@ -296,6 +299,8 @@ function mappingUnsupported() {
   const k = mappingValue().kind;
   if (k === 7 && !(info?.capabilities & CAP_POINTER))
     return "포인터 이동에는 왼쪽 키보드 펌웨어 v0.3.48 이상이 필요합니다.";
+  if (k === 7 && mappingValue().accel && !(info?.capabilities & CAP_POINTER_ACCEL))
+    return "포인터 가속에는 왼쪽 키보드 펌웨어 v0.3.49 이상이 필요합니다.";
   if (k === 6 && !(info?.capabilities & CAP_KEY_CHORD))
     return "일반 키를 두 개 이상 함께 보내려면 조합키를 지원하는 왼쪽 C86 펌웨어가 필요합니다.";
   if (!(info?.capabilities & CAP_MOUSE_BUTTON) &&
@@ -312,7 +317,8 @@ function pickBinding({ kind, code, shiftKey }) {
   setMappingFeedback();
   if (kind === 7) {
     bindingDraft = { kind, codes: [code], modifiers: 0,
-      speed: bindingDraft.kind === 7 ? bindingDraft.speed : defaultPointerSpeed() };
+      speed: bindingDraft.kind === 7 ? bindingDraft.speed : defaultPointerSpeed(),
+      accel: bindingDraft.kind === 7 ? bindingDraft.accel ?? 0 : 0 };
   } else if (kind !== 1) {
     bindingDraft = { kind, codes: [code], modifiers: 0 };
   } else {
@@ -345,6 +351,10 @@ function renderMappingPreview() {
   const b = mappingValue();
   $("bindingPreview").textContent = mappingReady() ? bindingLabel(b) : "출력 선택";
   $("pointerSpeedField").hidden = b.kind !== 7;
+  $("pointerAccelField").hidden = b.kind !== 7 || selected < 20;
+  if (b.kind === 7 && selected >= 20)
+    for (const button of $("pointerAccel").querySelectorAll("button"))
+      button.setAttribute("aria-pressed", String(Number(button.dataset.accel) === (b.accel ?? 0)));
   if (b.kind === 7) {
     if (document.activeElement !== $("pointerSpeed")) $("pointerSpeed").value = String(Math.abs(b.code));
     $("pointerSpeedUnit").textContent = selected >= 20 ? "px / 한 칸" : selected < 14 ? "px/s · 끝까지 눌렀을 때" : "px/s";
@@ -367,7 +377,7 @@ function renderBinding() {
   const b = inputBinding(selected, profile?.bindings) ?? { kind: 0, code: 0, modifiers: 0 };
   const bit = b.kind === 1 ? modifierBit(b.code) : 0;
   bindingDraft = b.kind === 7
-    ? { kind: 7, codes: [Math.sign(b.code) * (b.modifiers ? 2 : 1)], modifiers: 0, speed: Math.abs(b.code) }
+    ? { kind: 7, codes: [Math.sign(b.code) * (b.modifiers ? 2 : 1)], modifiers: 0, speed: Math.abs(b.code), accel: b.accel ?? 0 }
     : {
       kind: b.kind === 6 ? 1 : b.kind,
       codes: b.kind === 6 ? [...b.keys] : b.code && !bit ? [b.code] : [],
@@ -376,6 +386,11 @@ function renderBinding() {
   setMappingFeedback();
   renderMappingPreview();
 }
+for (const button of $("pointerAccel").querySelectorAll("button")) button.onclick = () => {
+  if (bindingDraft.kind !== 7 || mappingBlocked()) return;
+  bindingDraft = { ...bindingDraft, accel: Number(button.dataset.accel) };
+  renderMappingPreview();
+};
 $("pointerSpeed").oninput = () => {
   const speed = Number($("pointerSpeed").value);
   if (bindingDraft.kind !== 7 || !Number.isInteger(speed) || speed < 1 || speed > 4000) return;

@@ -133,7 +133,7 @@ export function bindingLabel(binding) {
       return mediaNames.get(binding.code) ?? hex(binding.code);
     case 7: {
       const arrow = binding.modifiers ? (binding.code > 0 ? "↓" : "↑") : (binding.code > 0 ? "→" : "←");
-      return `포인터 ${arrow} ${Math.abs(binding.code)}`;
+      return `포인터 ${arrow} ${Math.abs(binding.code)}${binding.accel ? ` · 가속 ×${binding.accel + 1}` : ""}`;
     }
     case 5:
       return (
