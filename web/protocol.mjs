@@ -49,6 +49,39 @@ export const POINTER_MAX = 4000;
 // rising linearly to (1+accel)x at 40 detents/s.
 export const CAP_POINTER_ACCEL = 0x800000;
 export const POINTER_ACCEL_MAX = 15;
+// Firmware 0.4.0+: four on-device profiles. Each holds every Hall key's
+// actuation, press/release RT, top/bottom deadzone and RT/retrigger flags plus
+// all 28 bindings; calibration, noise, curve_id and the custom curve are shared.
+// Command 0x4D: [0] state, [1,i] name, [2,i] select, [3,i,src] create a copy,
+// [4,i] delete, [5,i,name16] rename. Names are 16-byte NUL-padded UTF-8.
+export const CAP_PROFILES = 0x1000000;
+export const PROFILE_COUNT = 4;
+export const PROFILE_NAME_BYTES = 16;
+export const PROFILE_KEY_FLAGS = 0x02 | 0x08;
+export function encodeProfileName(name) {
+  if (typeof name !== "string") throw Error("프로필 이름은 문자열이어야 합니다.");
+  const data = new TextEncoder().encode(name);
+  if (data.length > PROFILE_NAME_BYTES) throw Error(`프로필 이름은 UTF-8 ${PROFILE_NAME_BYTES}바이트(한글 5자) 이내로 입력하세요.`);
+  if (data.some((b) => b < 0x20 || b === 0x7f)) throw Error("프로필 이름에 제어 문자를 쓸 수 없습니다.");
+  const out = new Uint8Array(PROFILE_NAME_BYTES);
+  out.set(data);
+  return out;
+}
+export function decodeProfileName(a) {
+  if (!(a instanceof Uint8Array) || a.length !== PROFILE_NAME_BYTES) throw Error("profile name length");
+  let end = a.indexOf(0);
+  if (end < 0) end = a.length;
+  if (a.subarray(end).some((b) => b)) throw Error("profile name has bytes after its end");
+  return new TextDecoder().decode(a.subarray(0, end));
+}
+export function decodeProfileState(a) {
+  if (!(a instanceof Uint8Array) || a.length !== 3) throw Error("profile state length");
+  const [count, active, used] = a;
+  if (count !== PROFILE_COUNT || active >= count || used >> count || !((used >> active) & 1))
+    throw Error("invalid profile state");
+  return { count, active, used: Array.from({ length: count }, (_, i) => i).filter((i) => (used >> i) & 1) };
+}
+export const profileLabel = (index, name) => name || `프로필 ${index + 1}`;
 export const CUSTOM_CURVE_POINTS = 15;
 export const CUSTOM_CURVE_STEP = 625;
 export const CUSTOM_CURVE_IDENTITY = Object.freeze(Array.from({ length: CUSTOM_CURVE_POINTS }, (_, i) => (i + 1) * CUSTOM_CURVE_STEP));
@@ -281,6 +314,7 @@ export const OP = {
   ADC_COMPARE: 0x48,
   ADC_PAIR: 0x49,
   CUSTOM_CURVE: 0x4c,
+  PROFILE: 0x4d,
 };
 export const KEY_FIELDS = [
   "key",

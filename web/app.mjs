@@ -31,6 +31,10 @@ import {
   CAP_CUSTOM_CURVE,
   CAP_POINTER,
   CAP_POINTER_ACCEL,
+  CAP_PROFILES,
+  PROFILE_COUNT,
+  encodeProfileName,
+  profileLabel,
   CUSTOM_CURVE_IDENTITY,
   keyRecord,
   TRAVEL_MAX,
@@ -122,6 +126,8 @@ let batchOriginal = null,
   batchOutcome = null;
 const batchActive = () => ["baseline", "press"].includes(batch.state);
 let drawnMeasurement = null;
+// On-device profiles (firmware 0.4.0+): { count, active, used, names } or null.
+let profileState = null;
 const hall = () => selected < 14;
 // Hall keys that are enabled but have no stored calibration (flag bit 2).
 const uncalibratedHall = () =>
@@ -668,6 +674,7 @@ $("owlabPreset").onclick = () => {
 };
 function controls() {
   renderMappingSource();
+  renderProfiles();
   const mutable =
     connected &&
     !busy &&
@@ -877,9 +884,123 @@ async function showFirmwareRelease(data) {
 async function refresh() {
   profile = await client.getConfig();
   infoView(await client.info());
+  await loadProfiles();
   if (adcTuningSupported()) showAdcTuning(await client.adcTuning());
   await loadDeviceCurve();
   renderSelection();
+}
+// Firmware 0.4.0+ on-device profiles: sidebar switcher and the 프로필 tab.
+const profilesSupported = () => !!(info?.capabilities & CAP_PROFILES);
+async function loadProfiles() {
+  profileState = profilesSupported() ? await client.profiles() : null;
+  renderProfiles();
+}
+// Rebuilt only when the profile state changes, so a name being typed survives
+// the frequent controls() refreshes; otherwise only enabled states update.
+let profileRendered = "", profileControls = [];
+function renderProfiles() {
+  const state = profileState;
+  const mutable = connected && !busy && !measuring() && !calibrationActive() && !batchActive();
+  const key = JSON.stringify([state, connected, profilesSupported()]);
+  if (key !== profileRendered) {
+    profileRendered = key;
+    buildProfiles(state);
+  }
+  for (const update of profileControls) update(mutable);
+}
+function buildProfiles(state) {
+  $("profileSwitch").hidden = !state;
+  $("profileUnsupported").hidden = !connected || profilesSupported();
+  $("profileSummary").textContent = state ? `${profileLabel(state.active, state.names[state.active])} 사용 중 · ${state.used.length} / ${PROFILE_COUNT}` : "—";
+  const buttons = $("profileButtons"), list = $("profileList");
+  buttons.replaceChildren();
+  list.replaceChildren();
+  profileControls = [];
+  if (!state) return;
+  const control = (el, blocked = () => false) => {
+    profileControls.push((mutable) => { el.disabled = !mutable || blocked(); });
+    return el;
+  };
+  for (let i = 0; i < state.count; i++) {
+    const used = state.used.includes(i), active = state.active === i, label = profileLabel(i, state.names[i]);
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = used ? "ghost" : "ghost empty";
+    b.dataset.profile = String(i);
+    b.textContent = used ? (state.names[i] || String(i + 1)) : "+";
+    b.title = used ? (active ? `${label} 사용 중` : `${label}로 전환`) : `프로필 ${i + 1} 만들기 (현재 프로필 복사)`;
+    b.setAttribute("aria-label", b.title);
+    b.setAttribute("aria-pressed", String(active));
+    b.onclick = () => (used ? switchProfile(i) : createProfile(i));
+    buttons.append(control(b, () => active));
+
+    const row = document.createElement("div");
+    row.className = active ? "profile-row active" : "profile-row";
+    row.dataset.profileRow = String(i);
+    const badge = document.createElement("b");
+    badge.textContent = String(i + 1);
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const button = (text, cls, handler, blocked) => {
+      const el = document.createElement("button");
+      el.type = "button";
+      el.className = cls;
+      el.textContent = text;
+      el.onclick = handler;
+      actions.append(control(el, blocked));
+      return el;
+    };
+    if (used) {
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = state.names[i];
+      input.placeholder = `프로필 ${i + 1}`;
+      input.setAttribute("aria-label", `프로필 ${i + 1} 이름`);
+      control(input);
+      const rename = button("이름 바꾸기", "secondary", () => renameProfile(i, input.value), () => input.value === state.names[i]);
+      input.oninput = () => { rename.disabled = busy || !connected || input.value === state.names[i]; };
+      input.onkeydown = (e) => { if (e.key === "Enter" && !rename.disabled) rename.click(); };
+      button(active ? "사용 중" : "이 프로필 사용", active ? "secondary" : "", () => switchProfile(i), () => active);
+      button("삭제", "ghost", () => deleteProfile(i), () => active);
+      row.append(badge, input, actions);
+    } else {
+      const empty = document.createElement("span");
+      empty.className = "empty-label";
+      empty.textContent = "비어 있음";
+      button(`만들기 · ${profileLabel(state.active, state.names[state.active])} 복사`, "secondary", () => createProfile(i), () => false);
+      row.append(badge, empty, actions);
+    }
+    list.append(row);
+  }
+}
+function switchProfile(index) {
+  action(async () => {
+    profileState = { ...profileState, ...(await client.selectProfile(index)) };
+    await refresh();
+  }, `${profileLabel(index, profileState?.names[index])}로 전환했습니다. 유지하려면 ‘키보드에 저장’을 누르세요.`);
+}
+function createProfile(index) {
+  const source = profileState.active;
+  action(async () => {
+    await client.createProfile(index, source);
+    await client.selectProfile(index);
+    await refresh();
+  }, `프로필 ${index + 1}을 ${profileLabel(source, profileState.names[source])} 설정으로 만들고 전환했습니다. 유지하려면 ‘키보드에 저장’을 누르세요.`);
+}
+function deleteProfile(index) {
+  const label = profileLabel(index, profileState.names[index]);
+  if (!confirm(`${label}을 삭제할까요? 저장하기 전에는 연결을 다시 하면 되돌릴 수 있습니다.`)) return;
+  action(async () => {
+    await client.deleteProfile(index);
+    await loadProfiles();
+  }, `${label}을 삭제했습니다. 유지하려면 ‘키보드에 저장’을 누르세요.`);
+}
+function renameProfile(index, name) {
+  try { encodeProfileName(name.trim()); } catch (e) { log(e.message, true); return; }
+  action(async () => {
+    await client.renameProfile(index, name.trim());
+    await loadProfiles();
+  }, `프로필 ${index + 1} 이름을 바꿨습니다. 유지하려면 ‘키보드에 저장’을 누르세요.`);
 }
 async function loadDeviceCurve() {
   if (!curveSupported()) {
@@ -1341,6 +1462,7 @@ async function disconnect({ quiet = false } = {}) {
   client = null;
   profile = null;
   info = null;
+  profileState = null;
   connected = false;
   noiseDirty = false; noiseTargetKey = "";
   deviceCurve = null; curveDrawn = curveKindTouched = false;

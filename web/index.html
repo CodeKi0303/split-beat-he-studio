@@ -23,6 +23,10 @@
         ><button id="connect">키보드 연결</button
         ><button id="disconnect" class="ghost" disabled>연결 종료</button>
       </div>
+      <div id="profileSwitch" class="profile-switch" role="group" aria-label="프로필 전환" hidden>
+        <small>프로필</small>
+        <div id="profileButtons" class="profile-buttons"></div>
+      </div>
       <nav aria-label="설정 메뉴">
         <button class="nav active" data-tab="mapping" aria-selected="true">
           <span>⌘</span> 키 매핑
@@ -710,16 +714,24 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">06 / PROFILES</p>
-            <h2>설정을 보관하고 불러오기</h2>
+            <h2>키보드 프로필</h2>
           </div>
+          <span id="profileSummary" class="pill">—</span>
         </div>
+        <p class="muted">
+          작동점·RT·데드존과 키 매핑을 프로필마다 따로 둡니다. 보정, 노이즈, 거리 곡선은 모든 프로필이 함께 씁니다.
+          바꾼 뒤 ‘키보드에 저장’을 눌러야 다음에도 유지됩니다.
+        </p>
+        <p id="profileUnsupported" class="warning" hidden>프로필은 펌웨어 v0.4.0 이상에서 쓸 수 있습니다. 펌웨어 탭에서 업데이트하세요.</p>
+        <div id="profileList" class="profile-list" aria-label="프로필 목록"></div>
+        <h3 class="profile-file-title">파일로 보관</h3>
         <p>
-          보정·매핑·RT·이동거리를 함께 보관합니다.
+          현재 프로필의 보정·매핑·RT·이동거리를 파일로 보관하거나 불러옵니다.
         </p>
         <div class="form-actions">
-          <button id="export" disabled>프로필 내보내기</button
+          <button id="export" disabled>파일로 내보내기</button
           ><button id="import" class="secondary" disabled>
-            프로필 가져오기</button
+            파일 가져오기</button
           ><input
             id="profileFile"
             type="file"

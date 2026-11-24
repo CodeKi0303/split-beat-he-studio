@@ -11,6 +11,11 @@ import {
   CAP_CUSTOM_CURVE,
   CAP_POINTER,
   CAP_POINTER_ACCEL,
+  CAP_PROFILES,
+  PROFILE_COUNT,
+  PROFILE_NAME_BYTES,
+  PROFILE_KEY_FLAGS,
+  TRAVEL_FIELDS,
   CUSTOM_CURVE_IDENTITY,
   encodeCustomCurve,
   decodeCustomCurve,
@@ -122,6 +127,8 @@ export class DemoTransport {
     this.generation = 0;
     this.stored = null;
     this.storedOutput = false;
+    this.bank = this.newBank();
+    this.storedBank = null;
     this.enabled = false;
     this.dirty = false;
     this.start = this.clock();
@@ -149,12 +156,77 @@ export class DemoTransport {
     }
     return report;
   }
+  profilePart() {
+    return {
+      keys: this.profile.keys.map((k) => ({
+        ...Object.fromEntries(TRAVEL_FIELDS.map((f) => [f, k[f] ?? 0])),
+        flags: k.flags & PROFILE_KEY_FLAGS,
+      })),
+      bindings: structuredClone(this.profile.bindings),
+    };
+  }
+  newBank() {
+    return { active: 0, used: 1, slots: [{ ...this.profilePart(), name: new Uint8Array(PROFILE_NAME_BYTES) }, null, null, null] };
+  }
+  applyPart(part) {
+    this.profile.keys.forEach((key, i) => {
+      for (const f of TRAVEL_FIELDS) key[f] = part.keys[i][f];
+      key.flags = (key.flags & ~PROFILE_KEY_FLAGS) | part.keys[i].flags;
+    });
+    this.profile.bindings = structuredClone(part.bindings);
+  }
+  profileCommand(p) {
+    const lengths = [1, 2, 2, 3, 2, 2 + PROFILE_NAME_BYTES];
+    if (!p.length || p[0] > 5 || p.length !== lengths[p[0]]) throw Error("length");
+    const b = this.bank, op = p[0], index = p.length > 1 ? p[1] : 0;
+    if (index >= PROFILE_COUNT) throw Error("index");
+    const used = (i) => (b.used >> i) & 1;
+    if (op === 1) {
+      const reply = new Uint8Array(1 + PROFILE_NAME_BYTES);
+      reply[0] = index;
+      if (b.slots[index]) reply.set(b.slots[index].name, 1);
+      return reply;
+    }
+    if (op === 2) {
+      if (!used(index)) throw Error("unused");
+      if (index !== b.active) {
+        Object.assign(b.slots[b.active], this.profilePart());
+        this.applyPart(b.slots[index]);
+        b.active = index;
+        this.enabled = false;
+        this.dirty = true;
+        this.resetRT();
+      }
+    } else if (op === 3) {
+      const source = p[2];
+      if (used(index) || source >= PROFILE_COUNT || !used(source)) throw Error("slot");
+      const part = source === b.active ? this.profilePart() : structuredClone(b.slots[source]);
+      b.slots[index] = { ...part, name: new Uint8Array(PROFILE_NAME_BYTES) };
+      b.used |= 1 << index;
+      this.dirty = true;
+    } else if (op === 4) {
+      if (!used(index) || index === b.active) throw Error("slot");
+      b.slots[index] = null;
+      b.used &= ~(1 << index);
+      this.dirty = true;
+    } else {
+      if (!used(index)) throw Error("unused");
+      const name = p.slice(2);
+      let end = name.indexOf(0);
+      if (end < 0) end = name.length;
+      if (name.subarray(end).some((x) => x) || name.subarray(0, end).some((x) => x < 0x20 || x === 0x7f)) throw Error("name");
+      b.slots[index].name = name;
+      this.dirty = true;
+    }
+    return Uint8Array.of(PROFILE_COUNT, b.active, b.used);
+  }
   async close() {
     this.enabled = false;
     this.resetRT();
   }
   async reconnect() {
     this.profile = structuredClone(this.stored);
+    this.bank = this.storedBank ? structuredClone(this.storedBank) : this.newBank();
     this.customCurve = [...(this.storedCurve ?? CUSTOM_CURVE_IDENTITY)];
     this.enabled = this.storedOutput;
     this.dirty = false;
@@ -192,7 +264,7 @@ export class DemoTransport {
       if (p.length) throw Error();
       let [a, v] = out(34);
       a.set([0, 3, 22, 0, 14, 6, 4, 28]);
-      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL | CAP_CUSTOM_CURVE | CAP_POINTER | CAP_POINTER_ACCEL, this.generation, 0].forEach((x, i) =>
+      [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL | CAP_CUSTOM_CURVE | CAP_POINTER | CAP_POINTER_ACCEL | CAP_PROFILES, this.generation, 0].forEach((x, i) =>
         v.setUint32(8 + i * 4, x, true),
       );
       v.setUint16(28, 1024, true);
@@ -309,6 +381,8 @@ export class DemoTransport {
     if (op === OP.SAVE) {
       if (p.length) throw Error();
       this.stored = structuredClone(this.profile);
+      Object.assign(this.bank.slots[this.bank.active], this.profilePart());
+      this.storedBank = structuredClone(this.bank);
       this.storedCurve = [...(this.customCurve ?? CUSTOM_CURVE_IDENTITY)];
       this.storedOutput = this.enabled;
       this.enabled = false;
@@ -318,6 +392,7 @@ export class DemoTransport {
       v.setUint32(0, this.generation, true);
       return a;
     }
+    if (op === OP.PROFILE) return this.profileCommand(p);
     throw Error("unknown");
   }
 }

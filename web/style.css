@@ -117,6 +117,89 @@ summary:focus-visible {
   width: 100%;
   margin-top: 8px;
 }
+.profile-switch {
+  margin-top: 12px;
+  padding: 12px 15px;
+  background: #1c2129;
+  border: 1px solid #333a45;
+  border-radius: 9px;
+}
+.profile-switch small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+.profile-buttons {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+.profile-buttons button {
+  min-width: 0;
+  padding: 7px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.profile-buttons button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #192310;
+}
+.profile-buttons button.empty {
+  color: var(--muted);
+  border-style: dashed;
+}
+.profile-list {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 28px;
+}
+.profile-row {
+  display: grid;
+  grid-template-columns: 34px minmax(140px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #1c2129;
+}
+.profile-row.active {
+  border-color: #4f6b33;
+  background: #1f2a19;
+}
+.profile-row b {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #282e38;
+  font-size: 12px;
+}
+.profile-row.active b {
+  background: var(--accent);
+  color: #192310;
+}
+.profile-row input {
+  width: 100%;
+  min-width: 0;
+}
+.profile-row .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+.profile-row .empty-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.profile-file-title {
+  margin-top: 8px;
+}
 .device-dot {
   display: inline-block;
   width: 6px;
@@ -1024,6 +1107,17 @@ body.measuring .key {
   }
   .device-dot {
     display: none;
+  }
+  .profile-switch {
+    margin-top: 8px;
+    padding: 8px 10px;
+  }
+  .profile-row {
+    grid-template-columns: 28px minmax(0, 1fr);
+  }
+  .profile-row .actions {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
   .sidebar nav {
     flex-direction: row;

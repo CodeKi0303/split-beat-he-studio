@@ -27,6 +27,12 @@ import {
   requireBindingCapability,
   requireKeyCapability,
   CAP_CUSTOM_CURVE,
+  CAP_PROFILES,
+  PROFILE_COUNT,
+  PROFILE_NAME_BYTES,
+  encodeProfileName,
+  decodeProfileName,
+  decodeProfileState,
   encodeCustomCurve,
   decodeCustomCurve,
 } from "./protocol.mjs?v=studio-retrigger1";
@@ -252,10 +258,11 @@ export class KeyboardClient {
   async request(op, payload = new Uint8Array(), timeout = 1500) {
     // FirmwareClient owns update confirmation and sequencing. Right update
     // INFO also pauses scan/output, so it must not enter through this client.
-    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR) || op === OP.CUSTOM_CURVE))
+    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR) || op === OP.CUSTOM_CURVE || op === OP.PROFILE))
       throw Error("지원하지 않는 설정 명령입니다. 펌웨어 업데이트는 전용 업데이터를 사용하세요.");
     const curveWrite = op === OP.CUSTOM_CURVE && payload.length > 0;
-    if (([4, 5, 6, 7, 8, 10].includes(op) || op === OP.CUSTOM_CURVE) && !this.identified) {
+    const profileSelect = op === OP.PROFILE && payload[0] === 2;
+    if (([4, 5, 6, 7, 8, 10].includes(op) || op === OP.CUSTOM_CURVE || op === OP.PROFILE) && !this.identified) {
       this.deviceInfo = decodeInfo(await this.request(OP.INFO));
       this.identified = true;
     }
@@ -269,7 +276,7 @@ export class KeyboardClient {
       if (p.op !== (op | 128) || p.seq !== this.seq)
         throw Error("거래번호 불일치");
       if (p.status) throw Error(STATUS_NAMES[p.status] || `status ${p.status}`);
-      if ([4, 5, 6, 7, 8, 10].includes(op) || curveWrite) this.outputEnabled = false;
+      if ([4, 5, 6, 7, 8, 10].includes(op) || curveWrite || profileSelect) this.outputEnabled = false;
       return p.payload;
     } catch (e) {
       this.outputEnabled = false;
@@ -391,6 +398,56 @@ export class KeyboardClient {
       if (echoed.some((value, i) => value !== points[i])) throw Error("커스텀 곡선 응답이 요청과 다릅니다.");
       return echoed;
     });
+  }
+  // Firmware 0.4.0+ profiles. Changes are RAM only (SAVE persists all four);
+  // selecting loads that profile's keys and bindings, releases keys and turns
+  // output off like SET_KEY.
+  async _profileSupport() {
+    const deviceInfo = await this._identity();
+    if (!(deviceInfo.capabilities & CAP_PROFILES))
+      throw Error("프로필은 펌웨어 0.4.0 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
+  }
+  profiles() {
+    return this.run(async () => {
+      await this._profileSupport();
+      const state = decodeProfileState(await this.request(OP.PROFILE, Uint8Array.of(0)));
+      const names = [];
+      for (let i = 0; i < state.count; i++) {
+        const reply = await this.request(OP.PROFILE, Uint8Array.of(1, i));
+        if (reply.length !== 1 + PROFILE_NAME_BYTES || reply[0] !== i) throw Error("프로필 이름 응답이 요청과 다릅니다.");
+        names.push(decodeProfileName(reply.subarray(1)));
+      }
+      return { ...state, names };
+    });
+  }
+  _profileChange(payload) {
+    return this.run(async () => {
+      await this._profileSupport();
+      return decodeProfileState(await this.request(OP.PROFILE, payload));
+    });
+  }
+  selectProfile(index) {
+    integer(index, 0, PROFILE_COUNT - 1, "profile");
+    return this._profileChange(Uint8Array.of(2, index)).then((state) => {
+      if (state.active !== index) throw Error("프로필 전환 응답이 요청과 다릅니다.");
+      return state;
+    });
+  }
+  createProfile(index, source) {
+    integer(index, 0, PROFILE_COUNT - 1, "profile");
+    integer(source, 0, PROFILE_COUNT - 1, "source profile");
+    return this._profileChange(Uint8Array.of(3, index, source));
+  }
+  deleteProfile(index) {
+    integer(index, 0, PROFILE_COUNT - 1, "profile");
+    return this._profileChange(Uint8Array.of(4, index));
+  }
+  renameProfile(index, name) {
+    integer(index, 0, PROFILE_COUNT - 1, "profile");
+    const payload = new Uint8Array(2 + PROFILE_NAME_BYTES);
+    payload.set([5, index]);
+    payload.set(encodeProfileName(name), 2);
+    return this._profileChange(payload);
   }
   setBinding(binding) {
     const bytes = encodeBinding(binding);
