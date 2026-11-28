@@ -171,7 +171,8 @@ export function analyzeAutoFit(input) {
     const targetPress = Math.max(e.noiseMargin, e.tapAmplitude * ({ balanced: .08, repeat: .05, hold: .12 }[preference]));
     const targetRelease = Math.max(e.noiseMargin, e.holdRetreat + e.noiseMargin + e.tapAmplitude * ({ balanced: .08, repeat: .03, hold: .15 }[preference]));
     const actuations = unique([low, low + span * .2, low + span * .35, low + span * .5, targetActuation, config.actuation])
-      .filter((value) => value > top && value < e.minimumTapPeak);
+      .filter((value) => value > top && value < e.minimumTapPeak &&
+        (!config.fixed_release || (top <= config.fixed_release && config.fixed_release < value)));
     const presses = unique([e.noiseMargin, targetPress, e.tapAmplitude * .15, config.rt_press]).map((value) => clamp(value, 1, TRAVEL_MAX));
     const releases = unique([e.noiseMargin, targetRelease, e.holdRetreat + e.noiseMargin, e.tapAmplitude * .25, config.rt_release]).map((value) => clamp(value, 1, TRAVEL_MAX));
     const bottoms = unique([0, config.bottom_deadzone, e.holdMinimum >= 8000 ? Math.min(2000, TRAVEL_MAX - e.holdMinimum + e.noiseMargin) : 0]);

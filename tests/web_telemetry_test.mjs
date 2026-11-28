@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { c86KeyRelation } from "../web/interference-matrix.mjs";
 import {
   TelemetryStore,
   InterferenceSession,
@@ -115,9 +116,41 @@ assert.equal(result.keys[9].meanDeltaMm, null);
 assert.equal(result.maxOtherDeltaRaw, 10);
 assert.equal(result.maxOtherPercent, 1);
 assert.equal(result.maxOtherMm, 0.04);
+assert.equal(result.keys[8].meanDeltaPercent, 1, "positive percent points in the press direction");
+assert.equal(result.keys[9].meanDeltaPercent, null, "raw still available without calibrated span");
+assert.equal(measure.rows.get(0), result);
+function repeatHeld(key, held) {
+  measure.startBaseline(key, keys, Array(14).fill(4), 0);
+  for (let step = 0; step < 10; step++)
+    for (const side of [0, 1]) measure.add(side, status(step), step * 100);
+  assert.equal(measure.tick(1000), "ready");
+  measure.startPress(1000);
+  for (let step = 0; step < 10; step++)
+    for (const side of [0, 1]) {
+      const s = status(10 + step);
+      if (side === Math.floor(key / 7)) s.raw[key % 7] = held;
+      measure.add(side, s, 1000 + step * 100);
+    }
+  assert.equal(measure.tick(2000), "done");
+}
+repeatHeld(8, 1200);
+assert.equal(measure.rows.get(8).sourceMoved, true, "decreasing-ADC switches can be the source");
+repeatHeld(0, 2000);
+assert.equal(measure.result().sourceMoved, false);
+assert.equal(measure.rows.get(0), result, "unsuccessful repeat preserves last usable row");
+repeatHeld(0, 2700);
+assert.notEqual(measure.rows.get(0), result);
+assert.equal(measure.rows.size, 2);
+assert.deepEqual(c86KeyRelation(1, 2), { nearby: true, nextAdc: 1 });
+assert.deepEqual(c86KeyRelation(2, 1), { nearby: true, nextAdc: null });
+assert.deepEqual(c86KeyRelation(5, 4), { nearby: false, nextAdc: 2 });
+assert.deepEqual(c86KeyRelation(12, 11), { nearby: false, nextAdc: null });
+assert.deepEqual(c86KeyRelation(11, 12), { nearby: false, nextAdc: 2 });
+assert.deepEqual(c86KeyRelation(1, 8), { nearby: false, nextAdc: null });
 assert.equal(measure.add(0, status(21), 3100), false);
 measure.reset();
 assert.equal(measure.result(), null);
+assert.equal(measure.rows.size, 0);
 measure.startBaseline(0, keys, Array(14).fill(4), 0);
 for (let i = 0; i < 10; i++) measure.add(0, status(i), i * 100);
 assert.equal(measure.tick(1000), "error"); // missing right side cannot look like zero interference

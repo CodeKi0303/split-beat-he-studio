@@ -70,6 +70,18 @@ for (const { input } of validCases) {
     "Observed firmware states must stay independent of candidate simulation");
 }
 
+// Keep the configured release when comparing fixed and RT candidates. Some
+// otherwise plausible actuation points sit above (shallower than) this limit.
+for (const flags of [5, 7]) {
+  const input = inputFor({ ...baseConfig, flags, fixed_release: 1700 });
+  const result = analyzeAutoFit(input);
+  assert.equal(result.ready, true, JSON.stringify(result.reasons));
+  for (const { config } of result.candidates) {
+    assert.equal(config.fixed_release, 1700);
+    assert.ok(config.top_deadzone <= config.fixed_release && config.fixed_release < config.actuation);
+  }
+}
+
 function rejected(name, mutate) {
   const input = inputFor(); mutate(input);
   const result = analyzeAutoFit(input);

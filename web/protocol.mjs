@@ -55,6 +55,11 @@ export const POINTER_ACCEL_MAX = 15;
 // Command 0x4D: [0] state, [1,i] name, [2,i] select, [3,i,src] create a copy,
 // [4,i] delete, [5,i,name16] rename. Names are 16-byte NUL-padded UTF-8.
 export const CAP_PROFILES = 0x1000000;
+// 0.5.0+: KEY_EXT uses the reserved u16 at offset 20 for a profile-specific
+// fixed release point. A zero value follows actuation exactly (legacy mode).
+export const CAP_FIXED_RELEASE = 0x02000000;
+// 0.6.0+: immutable Owlab Ti HE physical model (curve_id 3).
+export const CAP_WISH_CURVE = 0x04000000;
 export const PROFILE_COUNT = 4;
 export const PROFILE_NAME_BYTES = 16;
 export const PROFILE_KEY_FLAGS = 0x02 | 0x08;
@@ -315,6 +320,7 @@ export const OP = {
   ADC_PAIR: 0x49,
   CUSTOM_CURVE: 0x4c,
   PROFILE: 0x4d,
+  KEY_EXT: 0x4e,
 };
 export const KEY_FIELDS = [
   "key",
@@ -404,7 +410,9 @@ function fields(o, names) {
 }
 export function keyRecord(o) {
   // Older profiles omit either extension; retain their exact linear behavior.
-  fields(o, KEY_FIELDS.filter((k) => !["bottom_deadzone", "curve_id"].includes(k) || Object.hasOwn(o ?? {}, k)));
+  const names = KEY_FIELDS.filter((k) => !["bottom_deadzone", "curve_id"].includes(k) || Object.hasOwn(o ?? {}, k));
+  if (Object.hasOwn(o ?? {}, "fixed_release")) names.push("fixed_release");
+  fields(o, names);
   let d = {};
   for (const k of KEY_FIELDS)
     d[k] = integer(["bottom_deadzone", "curve_id"].includes(k) && !Object.hasOwn(o, k) ? 0 : o[k], 0, 65535, k);
@@ -414,18 +422,26 @@ export function keyRecord(o) {
   for (const k of ["actuation", "rt_press", "rt_release"])
     integer(d[k], 1, TRAVEL_MAX, k);
   integer(d.top_deadzone, 0, d.actuation - 1, "top_deadzone");
+  const release = integer(Object.hasOwn(o, "fixed_release") ? o.fixed_release : 0, 0, TRAVEL_MAX, "fixed_release");
+  if (release) {
+    if (release < d.top_deadzone || release >= d.actuation)
+      throw Error("고정 해제 지점은 상단 데드존 이상, 작동 지점 미만이어야 합니다.");
+    d.fixed_release = release;
+  }
   integer(d.bottom_deadzone, 0, TRAVEL_MAX - d.actuation, "bottom_deadzone");
   integer(d.noise_deadband, 0, 100, "noise");
-  integer(d.curve_id, 0, 2, "curve_id");
+  integer(d.curve_id, 0, 3, "curve_id");
   if (d.flags & 4 && Math.abs(d.released - d.pressed) < 128)
     throw Error("보정 ADC 범위는 128 이상이어야 합니다");
   return d;
 }
 // legacy=true encodes for firmware without CAP_FINE_TRAVEL (0..1000 units).
-export function encodeKey(o, legacy = false) {
+export function encodeKey(o, legacy = false, extended = false) {
   let d = keyRecord(o),
     a = new Uint8Array(22),
     v = new DataView(a.buffer);
+  if (d.fixed_release && (!extended || legacy))
+    throw Error("고정 해제 지점은 확장 키 레코드가 필요합니다.");
   if (legacy) {
     for (const k of TRAVEL_FIELDS) {
       if (d[k] % LEGACY_TRAVEL_SCALE)
@@ -436,14 +452,16 @@ export function encodeKey(o, legacy = false) {
   a[0] = d.key;
   a[1] = d.flags;
   KEY_FIELDS.slice(2).forEach((k, i) => v.setUint16(2 + i * 2, d[k], true));
+  if (extended) v.setUint16(20, d.fixed_release ?? 0, true);
   return a;
 }
-export function decodeKey(a, legacy = false) {
-  if (a.length !== 22 || a.slice(20).some((x) => x))
+export function decodeKey(a, legacy = false, extended = false) {
+  if (a.length !== 22 || ((!extended || legacy) && a.slice(20).some((x) => x)))
     throw Error("key record length/reserved");
   let v = new DataView(a.buffer, a.byteOffset, a.byteLength),
     o = { key: a[0], flags: a[1] };
   KEY_FIELDS.slice(2).forEach((k, i) => (o[k] = v.getUint16(2 + i * 2, true)));
+  if (extended) o.fixed_release = v.getUint16(20, true);
   if (legacy) {
     if (TRAVEL_FIELDS.some((k) => o[k] > LEGACY_TRAVEL_MAX)) throw Error("legacy key record outside 0..1000");
     for (const k of TRAVEL_FIELDS) o[k] *= LEGACY_TRAVEL_SCALE;
@@ -451,12 +469,16 @@ export function decodeKey(a, legacy = false) {
   return keyRecord(o);
 }
 export function requireKeyCapability(key, capabilities) {
+  if (key.fixed_release && !(capabilities & CAP_FIXED_RELEASE))
+    throw Error("고정 해제 지점은 C86 펌웨어 0.5.0 이상이 필요합니다.");
   if ((key.flags & 8) && !(capabilities & CAP_RETRIGGER_BEFORE_RELEASE))
     throw Error("미해제 재입력은 이를 지원하는 C86 펌웨어 0.3.37 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   if (key.curve_id && !(capabilities & CAP_HALL_CURVE))
     throw Error("비선형 거리 보정은 펌웨어 0.3.5 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
   if (key.curve_id === 2 && !(capabilities & CAP_CUSTOM_CURVE))
     throw Error("커스텀 거리 곡선은 펌웨어 0.3.46 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
+  if (key.curve_id === 3 && !(capabilities & CAP_WISH_CURVE))
+    throw Error("WISH 방식 거리 곡선은 C86 펌웨어 0.6.0 이상이 필요합니다.");
   if (key.bottom_deadzone && !(capabilities & CAP_BOTTOM_DEADZONE))
     throw Error("하단 데드존은 펌웨어 0.3.4 이상이 필요합니다. 장치 설정은 변경하지 않았습니다.");
 }
@@ -568,7 +590,7 @@ export function validateProfile(o) {
   const source = scale === TRAVEL_MAX ? o.keys : o.keys.map((k) => {
     if (!k || typeof k !== "object" || Array.isArray(k)) throw Error("프로필 필드 불일치");
     const copy = { ...k };
-    for (const name of TRAVEL_FIELDS)
+    for (const name of [...TRAVEL_FIELDS, "fixed_release"])
       if (Object.hasOwn(copy, name)) copy[name] = integer(copy[name], 0, LEGACY_TRAVEL_MAX, name) * LEGACY_TRAVEL_SCALE;
     return copy;
   });

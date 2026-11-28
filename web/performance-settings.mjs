@@ -11,7 +11,7 @@ import {
 import { mmToNormalized } from "./telemetry.mjs?v=studio-owlab1";
 
 const distanceFields = [
-  "actuation", "rt_press", "rt_release", "top_deadzone", "bottom_deadzone",
+  "actuation", "rt_press", "rt_release", "top_deadzone", "bottom_deadzone", "fixed_release",
 ];
 const allowedFields = new Set([
   ...distanceFields, "noise_deadband", "enabled", "rapid_trigger", "retrigger_before_release", "curve_id",
@@ -63,7 +63,7 @@ export function proposePerformanceSettings(
   if (draft.bottom_deadzone > 0 && !(capabilities & CAP_BOTTOM_DEADZONE))
     throw Error("하단 데드존은 펌웨어 업데이트 후 적용할 수 있습니다.");
   if (Object.hasOwn(draft, "curve_id") &&
-      (!Number.isInteger(draft.curve_id) || draft.curve_id < 0 || draft.curve_id > 2))
+      (!Number.isInteger(draft.curve_id) || draft.curve_id < 0 || draft.curve_id > 3))
     throw Error("지원하지 않는 Hall 거리 곡선입니다.");
   if (draft.curve_id && !(capabilities & CAP_HALL_CURVE))
     throw Error("비선형 거리 보정은 펌웨어 0.3.5 업데이트 후 적용할 수 있습니다.");
@@ -90,6 +90,8 @@ export function proposePerformanceSettings(
       const step = capabilities & CAP_FINE_TRAVEL ? 1 : LEGACY_TRAVEL_SCALE;
       mmToNormalized(draft[field], total);
       key[field] = Math.round(draft[field] * TRAVEL_MAX / total / step) * step;
+      if (field === "fixed_release" && draft[field] > 0 && key[field] === 0)
+        throw Error(`Hall ${id}: 고정 해제 지점이 장치의 최소 설정 단위보다 작습니다.`);
     }
     if (Object.hasOwn(draft, "noise_deadband")) key.noise_deadband = draft.noise_deadband;
     if (Object.hasOwn(draft, "curve_id")) key.curve_id = draft.curve_id;
@@ -137,7 +139,7 @@ export async function applyPerformanceSettings(client, originalProfile, candidat
 
   let failure = null, preflightPassed = false, attempted = false;
   try {
-    if (proposed.some((key) => key.curve_id || (key.flags & 8))) {
+    if (proposed.some((key) => key.curve_id || key.fixed_release || (key.flags & 8))) {
       const deviceInfo = await client.info();
       for (const key of proposed) requireKeyCapability(key, deviceInfo.capabilities);
     }

@@ -158,6 +158,31 @@ const { installStudioTestHid } = require("./studio-browser-hid.cjs");
     await page.locator("#measurePress").click();
     await page.waitForFunction(() => document.querySelector("#measureState").textContent.startsWith("측정 완료"));
     assert.equal(await page.locator("#interferenceRows tr").count(), 13);
+    assert.equal(await page.locator("#interferenceMatrix tbody tr").count(), 1);
+    assert.equal(await page.locator("#interferenceMatrix tbody td").count(), 14);
+    assert.match(await page.locator("#interferenceMatrix tbody th").innerText(), /^L1 · /);
+    await page.locator("#matrixUnit").selectOption("percent");
+    assert.match(await page.locator("#matrixLegend").textContent(), /스트로크/);
+    assert.doesNotMatch(await page.locator("#interferenceMatrix").innerText(), /ADC[12] 직후/,
+      "legacy firmware should not show a modern rank order");
+    const [matrixFile] = await Promise.all([page.waitForEvent("download"), page.locator("#exportMatrix").click()]);
+    const matrix = JSON.parse(fs.readFileSync(await matrixFile.path(), "utf8"));
+    assert.equal(matrix.schema, "split-studio-interference-v1");
+    assert.equal(matrix.rows[0].selectedKey, 0);
+    assert.equal(matrix.rows[0].keys.length, 14);
+    assert.equal(matrix.rows[0].conditions.leftFirmware, "0.3.37");
+    assert(matrix.rows[0].keys[1].pressed.count >= 10);
+    const rankLabels = await page.evaluate(async (row) => {
+      const { drawInterferenceMatrix } = await import("./interference-matrix.mjs");
+      const table = document.createElement("table"), rows = new Map([[row.selectedKey, row]]);
+      return [0, 1].map((patch) => {
+        drawInterferenceMatrix(table, rows, "adc", {board_rev: 86, major: 0, minor: 5, patch},
+          (key) => String(key));
+        return table.tBodies[0].rows[0].cells[2].textContent;
+      });
+    }, matrix.rows[0]);
+    assert.match(rankLabels[0], /ADC1 직후/, "v0.5.0 L1 is followed by L2 on ADC1");
+    assert.doesNotMatch(rankLabels[1], /ADC1 직후/, "unverified future firmware must not show rank markers");
     await page.evaluate(() => { window.__studioTestHid.simulator.pose.fill(0); });
 
     // ADC application turns simulated output OFF before the paired write.
@@ -186,6 +211,8 @@ const { installStudioTestHid } = require("./studio-browser-hid.cjs");
     await idle();
     await clearCommands(); // The intentional restore above is not an automatic enable.
     assert.equal(await page.locator("#interferenceRows tr").count(), 0, "changing ADC settings clears measurements made with old settings");
+    assert(await page.locator("#matrixPanel").isHidden());
+    assert.equal(await page.locator("#interferenceMatrix tr").count(), 0);
     assert((await page.locator("#measureState").textContent()).startsWith("측정 전"));
 
     // Deterministic old observations avoid waiting 60 seconds. The production

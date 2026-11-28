@@ -12,6 +12,7 @@ import {
   CAP_POINTER,
   CAP_POINTER_ACCEL,
   CAP_PROFILES,
+  CAP_FIXED_RELEASE,
   PROFILE_COUNT,
   PROFILE_NAME_BYTES,
   PROFILE_KEY_FLAGS,
@@ -25,6 +26,7 @@ import {
   unpackPacket,
   encodeKey,
   decodeKey,
+  keyRecord,
   encodeBinding,
   decodeBinding,
   validateProfile,
@@ -74,7 +76,7 @@ export function demoRTStep(state, key, raw, customCurve = undefined) {
     state.rapidCycle = false;
     state.extreme = state.travel;
   } else if (!(key.flags & 2)) {
-    state.pressed = state.travel >= key.actuation;
+    state.pressed = state.pressed && key.fixed_release ? state.travel > key.fixed_release : state.travel >= key.actuation;
     state.rapidCycle = false;
     state.extreme = state.travel;
   } else if (key.bottom_deadzone && state.travel >= TRAVEL_MAX - key.bottom_deadzone) {
@@ -116,8 +118,9 @@ export function demoRTStep(state, key, raw, customCurve = undefined) {
 }
 export class DemoTransport {
   demo = true;
-  constructor({ clock = () => Date.now() } = {}) {
+  constructor({ clock = () => Date.now(), fixedRelease = false } = {}) {
     this.clock = clock;
+    this.fixedRelease = fixedRelease;
     this.profile = fresh();
     // Demo depth knob 0..1000 -> ADC 1000..3000 (a calibrated key reads pose*10 travel).
     this.pose = Array(14).fill(0);
@@ -160,6 +163,7 @@ export class DemoTransport {
     return {
       keys: this.profile.keys.map((k) => ({
         ...Object.fromEntries(TRAVEL_FIELDS.map((f) => [f, k[f] ?? 0])),
+        fixed_release: k.fixed_release ?? 0,
         flags: k.flags & PROFILE_KEY_FLAGS,
       })),
       bindings: structuredClone(this.profile.bindings),
@@ -171,6 +175,8 @@ export class DemoTransport {
   applyPart(part) {
     this.profile.keys.forEach((key, i) => {
       for (const f of TRAVEL_FIELDS) key[f] = part.keys[i][f];
+      if (part.keys[i].fixed_release) key.fixed_release = part.keys[i].fixed_release;
+      else delete key.fixed_release;
       key.flags = (key.flags & ~PROFILE_KEY_FLAGS) | part.keys[i].flags;
     });
     this.profile.bindings = structuredClone(part.bindings);
@@ -264,10 +270,12 @@ export class DemoTransport {
       if (p.length) throw Error();
       let [a, v] = out(34);
       a.set([0, 3, 22, 0, 14, 6, 4, 28]);
+      if (this.fixedRelease) a.set([0, 5, 0, 0]);
       [64000, 125, 0x33f | CAP_KEY_CHORD | CAP_SAVE_OUTPUT | CAP_RETRIGGER_BEFORE_RELEASE | CAP_FINE_TRAVEL | CAP_CUSTOM_CURVE | CAP_POINTER | CAP_POINTER_ACCEL | CAP_PROFILES, this.generation, 0].forEach((x, i) =>
         v.setUint32(8 + i * 4, x, true),
       );
       v.setUint16(28, 1024, true);
+      if (this.fixedRelease) v.setUint32(16, v.getUint32(16, true) | CAP_FIXED_RELEASE, true);
       a.set([86, 1, 2, Number(!!this.stored)], 30);
       return a;
     }
@@ -305,21 +313,25 @@ export class DemoTransport {
       v.setUint32(48, this.pressedMask, true);
       return a;
     }
-    if (op === OP.GET_KEY) {
+    const extended = op === OP.KEY_EXT && this.fixedRelease;
+    if (op === OP.GET_KEY || (extended && p.length === 1)) {
       if (p.length !== 1) throw Error();
-      return encodeKey(this.profile.keys[p[0]], this.wireLegacy);
+      const key = this.profile.keys[p[0]];
+      return encodeKey(extended ? key : { ...key, fixed_release: 0 }, this.wireLegacy, extended);
     }
     if (op === OP.GET_BINDING) {
       if (p.length !== 1) throw Error();
       return encodeBinding(this.profile.bindings[p[0]]);
     }
-    if (op === OP.SET_KEY) {
-      let k = decodeKey(p, this.wireLegacy);
+    if (op === OP.SET_KEY || extended) {
+      let k = decodeKey(p, this.wireLegacy, extended);
+      if (!extended && this.profile.keys[k.key].fixed_release)
+        k = keyRecord({ ...k, fixed_release: this.profile.keys[k.key].fixed_release });
       this.profile.keys[k.key] = k;
       this.enabled = false;
       this.dirty = true;
       this.resetRT();
-      return encodeKey(k, this.wireLegacy);
+      return encodeKey(extended ? k : { ...k, fixed_release: 0 }, this.wireLegacy, extended);
     }
     if (op === OP.CUSTOM_CURVE) {
       if (p.length) {

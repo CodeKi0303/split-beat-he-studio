@@ -1,14 +1,13 @@
 // Drawable ADC-to-travel curve for firmware 0.3.46+ curve_id 2. Pure canvas UI:
 // no device access. The caller writes the table with KeyboardClient.setCustomCurve.
 import { TRAVEL_MAX, CUSTOM_CURVE_POINTS, CUSTOM_CURVE_STEP, CUSTOM_CURVE_IDENTITY, customCurveRecord } from "./protocol.mjs?v=studio-retrigger1";
-import { travelFromSignal, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM } from "./hall-curve.mjs?v=studio-owlab1";
+import { travelFromSignal, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, HALL_CURVE_WISH, CURVE_NAMES } from "./hall-curve.mjs?v=studio-owlab1";
 
 const COLORS = {
   grid: "#293443", axis: "#8491a5", linear: "#969eac", owlab: "#72d4df",
   device: "rgba(180, 237, 120, 0.45)", draft: "#b4ed78", live: "#ff9e9c", actuation: "#f2c46d",
-  average: "#c39bff", decision: "#f5f7fa",
+  average: "#c39bff", decision: "#f5f7fa", wish: "#ffa978",
 };
-const CURVE_NAMES = ["직선", "Owlab Ti 근사", "커스텀"];
 
 /** Keep the table non-decreasing around an edited point. */
 export function setCurvePoint(points, index, value) {
@@ -42,10 +41,10 @@ export function mountCurveEditor(canvas, { onDraw = () => {}, onHover = () => {}
   const py = (travel) => geometry.B - (travel / TRAVEL_MAX) * (geometry.B - geometry.T);
   const tableOf = (id) => id === HALL_CURVE_CUSTOM ? draft : undefined;
 
-  function line(c, id, table, style, width, dash = []) {
+  function line(c, id, table, style, width, dash = [], scale = 1) {
     c.strokeStyle = style; c.lineWidth = width; c.setLineDash(dash); c.beginPath();
     for (let x = 0; x <= 10000; x += 125) {
-      const y = travelFromSignal(x, id, table ?? CUSTOM_CURVE_IDENTITY);
+      const y = travelFromSignal(x, id, table ?? CUSTOM_CURVE_IDENTITY) * scale;
       x ? c.lineTo(px(x), py(y)) : c.moveTo(px(x), py(y));
     }
     c.stroke(); c.setLineDash([]);
@@ -77,6 +76,7 @@ export function mountCurveEditor(canvas, { onDraw = () => {}, onHover = () => {}
 
     line(c, HALL_CURVE_LINEAR, null, COLORS.linear, 1.5, [6, 4]);
     line(c, HALL_CURVE_OWLAB_TI, null, COLORS.owlab, 1.5, [2, 3]);
+    if (context.wishTravelMm) line(c, HALL_CURVE_WISH, null, COLORS.wish, 2, [], context.wishTravelMm / mm);
     if (device && device.some((v, i) => v !== draft[i])) line(c, HALL_CURVE_CUSTOM, device, COLORS.device, 1.5);
     line(c, HALL_CURVE_CUSTOM, draft, COLORS.draft, 2.5);
     c.fillStyle = COLORS.draft;
@@ -101,7 +101,15 @@ export function mountCurveEditor(canvas, { onDraw = () => {}, onHover = () => {}
       c.strokeStyle = COLORS.average; c.lineWidth = 1.5; c.setLineDash([3, 3]);
       c.beginPath(); c.moveTo(x, T); c.lineTo(x, B); c.stroke(); c.setLineDash([]);
     }
-    if (Number.isFinite(decision)) {
+    if (context.keyCurveId === HALL_CURVE_WISH && Number.isFinite(context.reportedTravel)) {
+      // STATUS is the firmware's recognized distance, including endpoint snaps.
+      // ADC_COMPARE is a separate sample, so do not invent an x coordinate.
+      const y = py(context.reportedTravel);
+      c.strokeStyle = COLORS.decision; c.lineWidth = 1; c.setLineDash([2, 3]);
+      c.beginPath(); c.moveTo(L, y); c.lineTo(R, y); c.stroke(); c.setLineDash([]);
+      c.fillStyle = COLORS.decision;
+      c.beginPath(); c.arc(L, y, 4, 0, Math.PI * 2); c.fill();
+    } else if (context.keyCurveId !== HALL_CURVE_WISH && Number.isFinite(decision)) {
       // The decision code on the curve the key actually uses (the keyboard's table).
       const id = context.keyCurveId ?? HALL_CURVE_LINEAR, s = clampSignal(decision);
       const y = py(travelFromSignal(s, id, id === HALL_CURVE_CUSTOM ? (device ?? draft) : CUSTOM_CURVE_IDENTITY));
@@ -143,9 +151,11 @@ export function mountCurveEditor(canvas, { onDraw = () => {}, onHover = () => {}
     if (!geometry) return;
     if (dragging) paint(event);
     const { signal } = signalAt(event), x = Math.round(signal);
-    const values = [HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM]
-      .map((id) => travelFromSignal(x, id, tableOf(id) ?? CUSTOM_CURVE_IDENTITY) * context.travelMm / TRAVEL_MAX);
-    onHover({ signal: x, codes: context.span ? Math.round(context.span * x / 10000) : null, mm: values, names: CURVE_NAMES });
+    const curves = [HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM];
+    if (context.wishTravelMm) curves.push(HALL_CURVE_WISH);
+    const values = curves.map((id) => travelFromSignal(x, id, tableOf(id) ?? CUSTOM_CURVE_IDENTITY) *
+      (id === HALL_CURVE_WISH ? context.wishTravelMm : context.travelMm) / TRAVEL_MAX);
+    onHover({ signal: x, codes: context.span ? Math.round(context.span * x / 10000) : null, mm: values, names: curves.map(id => CURVE_NAMES[id]) });
   });
   const stop = () => { dragging = false; lastIndex = null; };
   canvas.addEventListener("pointerup", stop);

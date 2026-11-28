@@ -823,6 +823,14 @@ input[type="checkbox"] {
 .fields .actuation-field {
   grid-column: 1 / -1;
 }
+#fixedReleaseGroup:not([hidden]) {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+#fixedReleaseGroup .rt-field-help { flex: 1; }
+#fixedReleaseGroup input { margin-bottom: 0; }
 .fields > label:has(input:disabled) {
   color: var(--muted);
 }
@@ -937,6 +945,14 @@ canvas {
   border-top: 1px solid var(--line);
   padding-top: 14px;
 }
+#matrixPanel { margin-block: 1.25rem; }
+#interferenceMatrix th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--panel, #161d26);
+}
+#interferenceMatrix td { font-variant-numeric: tabular-nums; }
+#interferenceMatrix td small { display: block; color: var(--muted); }
 progress {
   width: 100%;
   height: 5px;
@@ -1435,6 +1451,7 @@ body.measuring .key {
 .curve-legend .swatch { display:inline-block; width:18px; height:0; border-top:2px solid; }
 .curve-legend .linear { border-top:2px dashed #969eac; }
 .curve-legend .owlab { border-top:2px dotted #72d4df; }
+.curve-legend .wish { border-color:#ffa978; }
 .curve-legend .draft { border-top:3px solid #b4ed78; }
 .curve-legend .device { border-top:2px solid rgba(180,237,120,.45); }
 .curve-legend .live { border-top:2px solid #ff9e9c; }

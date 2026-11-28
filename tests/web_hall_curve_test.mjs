@@ -4,7 +4,7 @@ import { setCurvePoint } from "../web/curve-editor.mjs";
 import { rawToEstimatedMm, summarizeTravel, summarize, InterferenceSession } from "../web/telemetry.mjs";
 import { SampledRT } from "../web/rhythm-analysis.mjs";
 import { demoRTState, demoRTStep, DemoTransport } from "../web/demo.mjs";
-import { keyRecord, encodeKey, decodeKey, CAP_HALL_CURVE, OP, CUSTOM_CURVE_IDENTITY, encodeCustomCurve, decodeCustomCurve } from "../web/protocol.mjs";
+import { keyRecord, encodeKey, decodeKey, CAP_HALL_CURVE, CAP_WISH_CURVE, OP, CUSTOM_CURVE_IDENTITY, encodeCustomCurve, decodeCustomCurve } from "../web/protocol.mjs";
 import { KeyboardClient } from "../web/device.mjs";
 import { makeUiProfile, parseUiProfile } from "../web/ui-profile.mjs";
 import { proposePerformanceSettings, applyPerformanceSettings } from "../web/performance-settings.mjs";
@@ -42,7 +42,7 @@ for (let i=0;i<10;i++) for (const side of [0,1]) interference.add(side,observe(i
 assert.equal(interference.tick(2000),"done");
 assert.equal(interference.result().keys[1].meanDeltaMm,
   rawToEstimatedMm(1420,key,3.4)-rawToEstimatedMm(1400,key,3.4));
-for (const bad of [-1, 3, null, true, "1"])
+for (const bad of [-1, 4, null, true, "1"])
   assert.throws(() => keyRecord({ ...key, curve_id: bad }));
 const legacy = { ...key }; delete legacy.curve_id; delete legacy.bottom_deadzone;
 assert.equal(keyRecord(legacy).curve_id, 0);
@@ -106,4 +106,24 @@ await assert.rejects(() => oldClient.customCurve(), /0.3.46/);
 await assert.rejects(() => oldClient.setCustomCurve(drawn), /0.3.46/);
 assert.deepEqual(oldTransport.mutations, [], "custom curve capability preflight precedes any mutation");
 assert.throws(() => proposePerformanceSettings(base, [0], Array(14).fill(3.4), { curve_id: 2 }, CAP_HALL_CURVE), /0.3.46/);
+const wish = { ...key, curve_id: 3, released: 2204, pressed: 2646 };
+assert.deepEqual(decodeKey(encodeKey(wish)), wish);
+assert.deepEqual([2190, 2204, 2205, 2214, 2240, 2425, 2646, 2700].map(v => rawToTravel(v, wish)),
+  [0, 0, 81, 771, 2362, 7511, 10000, 10000]);
+// Direct ADC-to-Q15 rounding is significant near rest (via 0..10000 gives 82).
+assert.equal(travelFromSignal(23, 3), 82);
+const wishReverse = { ...wish, released: 2646, pressed: 2204 };
+for (let i = 0; i <= 442; i++)
+  assert.equal(rawToTravel(2204 + i, wish), rawToTravel(2646 - i, wishReverse));
+assert.equal(rawToEstimatedMm(2425, wish, 3.4), 7511 * 3.4 / 10000);
+assert.deepEqual(proposePerformanceSettings(base, [0], Array(14).fill(3.4),
+  {curve_id: 3}, CAP_HALL_CURVE | CAP_WISH_CURVE)[0], { ...base.keys[0], curve_id: 3 });
+assert.throws(() => proposePerformanceSettings(base, [0], Array(14).fill(3.4),
+  {curve_id: 3}, CAP_HALL_CURVE), /0.6.0/);
+const oldCurveTransport = new DemoTransport(), oldCurveClient = new KeyboardClient(oldCurveTransport);
+const oldProfile = await oldCurveClient.getConfig();
+oldProfile.keys[0] = wish;
+const prior = structuredClone(oldCurveTransport.profile);
+await assert.rejects(oldCurveClient.importProfile(oldProfile), /0.6.0/);
+assert.deepEqual(oldCurveTransport.profile, prior);
 console.log("Hall curves: monotonicity, polarity, proportional travel, codec/profile compatibility, RT/demo parity, custom curve table/codec/client and old-firmware zero-mutation gates PASS");

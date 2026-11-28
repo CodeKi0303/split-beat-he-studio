@@ -30,6 +30,7 @@ let browser;
     await route.fulfill({ response, body: await response.text() + `
 const originalTestCommand = DemoTransport.prototype.command;
 DemoTransport.prototype.command = function(op, payload) {
+  if (window.__fixedReleaseTestFirmware) this.fixedRelease = true;
   window.__demoCommands.push({op, payload:[...payload]});
   const response = originalTestCommand.call(this, op, payload);
   if (op === OP.INFO && window.__legacyTestFirmware) {
@@ -263,7 +264,39 @@ DemoTransport.prototype.command = function(op, payload) {
   assert.equal(await page.locator("#curveId").isDisabled(), true);
   assert.equal(await page.locator("#owlabPreset").isDisabled(), true);
   assert.equal(await page.locator("#curveCompatibility").isVisible(), true);
+  assert.equal(await page.locator("#fixedReleaseGroup").isVisible(), false);
   await assertNoSaveOrEnable();
+  await page.locator("#disconnect").click();
+  await page.evaluate(() => {
+    window.__legacyTestFirmware = false;
+    window.__fixedReleaseTestFirmware = true;
+  });
+  await page.locator("#connect").click();
+  await page.waitForFunction(() => document.querySelector("#mode").textContent.includes("v0.5.0"));
+  const fixedFixture = structuredClone(fixture);
+  fixedFixture.device.keys.forEach((key) => { key.flags = 5; key.actuation = 2500; });
+  await importProfile(fixedFixture);
+  await nav("performance");
+  await page.locator("#selectLeftHall").click();
+  await page.locator("#fixedRelease").fill("0.70");
+  await clearCommands();
+  await page.locator("#applyKey").click();
+  await notice("7개 키 설정 적용 완료");
+  await idle();
+  assert.deepEqual((await commands()).filter(call => call.op === 0x4e && call.payload.length === 22).map(call => call.payload[0]), [0,1,2,3,4,5,6]);
+  const fixedProfile = await exportProfile();
+  assert.ok(fixedProfile.device.keys.slice(0,7).every(k => k.fixed_release === 1750));
+  assert.ok(fixedProfile.device.keys.slice(7).every(k => !k.fixed_release));
+  await nav("performance");
+  await page.locator("#rt").check();
+  assert.equal(await page.locator("#fixedReleaseGroup").isVisible(), false);
+  await page.locator("#rt").uncheck();
+  assert.equal(await page.locator("#fixedRelease").inputValue(), "0.700");
+  await page.locator("#followActuation").click();
+  await page.locator("#applyKey").click();
+  await notice("7개 키 설정 적용 완료");
+  await idle();
+  assert.deepEqual((await exportProfile()).device, fixedFixture.device);
   assert.equal(await page.evaluate(() => window.__physicalHidAttempts), 0);
   assert.deepEqual(errors, []);
   await context.close();

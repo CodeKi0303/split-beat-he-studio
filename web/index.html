@@ -211,6 +211,7 @@
               <option value="0">선형</option>
               <option value="1">Owlab Ti HE · 근사</option>
               <option value="2">커스텀 (센서 진단/설정에서 그림)</option>
+              <option value="3" id="performanceWishOption" hidden disabled>WISH 방식 · Owlab Ti HE (3.4 mm 기준)</option>
             </select></label>
             <button id="owlabPreset" class="secondary" type="button">Owlab Ti HE · 3.4 mm</button>
           </div>
@@ -256,6 +257,12 @@
                     /><b>mm</b>
                   </div></label
                 >
+                <div id="fixedReleaseGroup" hidden>
+                  <label>고정 해제 지점 (mm)
+                    <input id="fixedRelease" type="number" min="0.001" max="4" step="0.001" placeholder="작동점과 동일" />
+                  </label>
+                  <button id="followActuation" class="secondary" type="button">작동점 따르기</button>
+                </div>
                 <label
                   >눌림 RT
                   <div class="range-pair">
@@ -511,13 +518,14 @@
           <legend>ADC → 거리 곡선</legend>
           <p class="muted">그래프 위를 마우스로 끌면 커스텀 곡선을 그립니다.</p>
           <div class="curve-legend" aria-hidden="true">
-            <span><i class="swatch linear"></i>직선</span><span><i class="swatch owlab"></i>Owlab Ti 근사</span><span><i class="swatch draft"></i>커스텀 (편집 중)</span><span><i class="swatch device"></i>키보드의 커스텀</span><span><i class="swatch live"></i>raw ADC</span><span><i class="swatch average"></i>이동평균</span><span><i class="dot decision"></i>판정값(평균·노이즈 제거)</span><span><i class="swatch actuation"></i>작동점</span>
+            <span id="wishCurveLegend"><i class="swatch wish"></i><span id="wishCurveLabel">WISH 미리보기 · Owlab Ti HE</span></span>
+            <span><i class="swatch linear"></i>직선</span><span><i class="swatch owlab"></i>Owlab Ti 근사</span><span><i class="swatch draft"></i>커스텀 (편집 중)</span><span><i class="swatch device"></i>키보드의 커스텀</span><span><i class="swatch live"></i>raw ADC</span><span><i class="swatch average"></i>이동평균</span><span><i class="dot decision"></i><span id="curveDecisionLabel">판정값(평균·노이즈 제거)</span></span><span><i class="swatch actuation"></i>작동점</span>
           </div>
-          <div class="curve-canvas-wrap"><canvas id="curveCanvas" role="img" aria-label="ADC 신호 대비 판정 거리: 직선, Owlab Ti 근사, 커스텀 곡선"></canvas></div>
+          <div class="curve-canvas-wrap"><canvas id="curveCanvas" role="img" aria-label="보정한 ADC 신호와 키 이동거리(mm)를 비교하는 그래프"></canvas></div>
           <p id="curveLive" class="curve-live" aria-live="polite"></p>
           <p id="curveReadout" class="muted" role="status"></p>
           <div class="curve-controls">
-            <label>곡선<select id="curveKind"><option value="0">직선</option><option value="1">Owlab Ti 근사</option><option value="2">커스텀</option></select></label>
+            <label>곡선<select id="curveKind"><option value="0">직선</option><option value="1">Owlab Ti 근사</option><option value="2">커스텀</option><option value="3" id="diagnosticsWishOption" hidden disabled>WISH 방식 · Owlab Ti HE (3.4 mm 기준)</option></select></label>
             <label>적용 범위<select id="curveScope"><option value="selected">선택한 키</option><option value="left">왼쪽 Hall 전체</option><option value="right">오른쪽 Hall 전체</option><option value="all">모든 Hall 키</option></select></label>
           </div>
           <div class="curve-presets">
@@ -590,6 +598,19 @@
               측정 전 · 키 출력은 측정 시작 시 꺼집니다.
             </p>
             <progress id="measureProgress" value="0" max="1"></progress>
+            <section id="matrixPanel" hidden>
+              <div class="sensor-view-toolbar">
+                <h3>키 간 간섭 비교표</h3>
+                <label>표시 단위<select id="matrixUnit"><option value="adc">평균 변화 ADC</option><option value="percent">관찰 키 스트로크 %</option></select></label>
+                <button id="exportMatrix" type="button" class="secondary">비교표 내보내기</button>
+                <button id="clearMatrix" type="button" class="ghost">비교표 지우기</button>
+              </div>
+              <p class="muted">다른 키를 선택해 두 단계를 반복하면 행이 추가됩니다. 같은 키의 재측정은 해당 행을 갱신합니다.</p>
+              <div class="table-scroll" role="region" aria-label="좌우 Hall 키 간섭 비교표" tabindex="0">
+                <table id="interferenceMatrix" aria-label="누른 키별 관찰 키의 평균 변화" aria-describedby="matrixLegend"></table>
+              </div>
+              <p id="matrixLegend" class="muted"></p>
+            </section>
             <p id="interferenceSummary"></p>
             <div class="table-scroll">
               <table>
@@ -785,6 +806,6 @@
         <pre id="log"></pre>
       </details>
     </main>
-    <script type="module" src="app.mjs?v=studio-firmware-tab1"></script>
+    <script type="module" src="app.mjs?v=studio-wish-distance1"></script>
   </body>
 </html>

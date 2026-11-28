@@ -32,6 +32,8 @@ import {
   CAP_POINTER,
   CAP_POINTER_ACCEL,
   CAP_PROFILES,
+  CAP_FIXED_RELEASE,
+  CAP_WISH_CURVE,
   PROFILE_COUNT,
   encodeProfileName,
   profileLabel,
@@ -40,12 +42,13 @@ import {
   TRAVEL_MAX,
 } from "./protocol.mjs?v=studio-retrigger1";
 import { mountBindingPicker } from "./binding-picker.mjs?v=studio-chords1";
-import { OWLAB_TI_TRAVEL_MM, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, setActiveCustomCurve, curveAsCustomTable, rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
+import { OWLAB_TI_TRAVEL_MM, HALL_CURVE_LINEAR, HALL_CURVE_OWLAB_TI, HALL_CURVE_CUSTOM, HALL_CURVE_WISH, CURVE_NAMES, setActiveCustomCurve, curveAsCustomTable, rawToTravel } from "./hall-curve.mjs?v=studio-owlab1";
 import { mountCurveEditor } from "./curve-editor.mjs?v=studio-custom-curve1";
 import { mountFirmwareTab } from "./firmware-tab.mjs?v=studio-firmware-tab1";
 import { HALVES, CONTROLS, INPUTS } from "./layout.mjs?v=studio-owlab1";
 import { inputBinding, inputBindingLabel, inputKeycapLabel, inputLabel } from "./input-labels.mjs?v=studio-default-layout1";
 import { noiseTargets, proposeNoiseSettings, sensorSeries, relativeSensorSeries } from "./sensor-settings.mjs?v=studio-sensor-lab1";
+import { drawInterferenceMatrix } from "./interference-matrix.mjs";
 import {
   TelemetryStore,
   InterferenceSession,
@@ -92,6 +95,7 @@ let lastPollAt = -Infinity;
 const lastStatusPaint = [-Infinity, -Infinity];
 let latest = [null, null],
   travelMm = Array(14).fill(4),
+  explicitStroke = Array(14).fill(false),
   preferenceKey = "split-studio:preview",
   calStage = null;
 const telemetry = new TelemetryStore({ windowMs: 60000, maxSamples: 3000 }),
@@ -111,7 +115,8 @@ let deviceCurve = null, curveDrawn = false, curveKindTouched = false;
 // post-deadband decision). Right keys need firmware 0.3.47+.
 let curveLive = null, compareRightUnsupported = false;
 const curveSupported = () => connected && !!(info?.capabilities & CAP_CUSTOM_CURVE);
-const curveLiveWanted = () => adcTuningSupported() && curveSupported() && hall() && !$("curveEditor").hidden &&
+const curvePreviewAvailable = () => connected && info?.board_rev === 86;
+const curveLiveWanted = () => adcTuningSupported() && curvePreviewAvailable() && hall() && !$("curveEditor").hidden &&
   !(selected >= 7 && compareRightUnsupported);
 const adcTuningSupported = () => connected && !!(info?.capabilities & CAP_ADC_TUNING);
 const adcPairSupported = () => adcTuningSupported() && !!(info?.capabilities & CAP_ADC_PAIR);
@@ -150,7 +155,7 @@ function savePreferences() {
   try {
     localStorage.setItem(
       preferenceKey,
-      JSON.stringify({ totalTravelMm: travelMm }),
+      JSON.stringify({ totalTravelMm: travelMm, explicitStroke }),
     );
   } catch {
     log(
@@ -161,9 +166,15 @@ function savePreferences() {
 }
 function loadPreferences() {
   travelMm = Array(14).fill(4);
+  explicitStroke = Array(14).fill(false);
   try {
     const saved = JSON.parse(localStorage.getItem(preferenceKey));
-    if (saved) travelMm = validateTravelArray(saved.totalTravelMm);
+    if (saved) {
+      travelMm = validateTravelArray(saved.totalTravelMm);
+      // Older Studio versions stored all fourteen lengths without tracking edits.
+      explicitStroke = Array.isArray(saved.explicitStroke) && saved.explicitStroke.length === 14 &&
+        saved.explicitStroke.every((v) => typeof v === "boolean") ? saved.explicitStroke : Array(14).fill(true);
+    }
   } catch {
     log(
       "저장된 이동거리 정보를 읽지 못해 4.00 mm로 표시합니다. 스위치 사양을 다시 선택하세요.",
@@ -452,6 +463,7 @@ function renderMappingSource() {
     : "기본 배치 미리보기";
 }
 function renderSelection() {
+  if (profile) travelMm = profile.keys.map((key, id) => strokeForCurve(id, key.curve_id));
   const count = performanceTargets().length;
   $("selectionLabel").textContent = activeTab === "performance" && count !== 1
     ? `${count}개 Hall 키 선택` : mappedInputLabel(selected);
@@ -526,6 +538,8 @@ function renderKey() {
       $(id + "Range").setAttribute("aria-valuetext", mixed ? "혼합 — 변경하면 선택한 키에 적용" : `${$(id).value} mm`);
     }
   }
+  const mixedRelease = renderFixedRelease(targets);
+  hasMixed ||= mixedRelease;
   $("performanceSelectionHelp").textContent = hasMixed
     ? "혼합 값 · 변경한 항목만 적용합니다." : "변경한 항목만 선택한 키에 적용합니다.";
   $("performanceSelectionHelp").hidden = !hasMixed;
@@ -542,7 +556,7 @@ function renderKey() {
     : `현재 펌웨어 설정 1단계 ≈ ${fmt(total / 1000, 4)} mm (0.001 mm 입력은 펌웨어 v0.3.43부터 그대로 저장, 지금은 이 단위로 반올림)`;
   $("quantization").textContent = calibrated
     ? k.curve_id
-      ? `${step} · Owlab Ti HE 근사곡선 · ADC당 이동량은 위치별로 다릅니다.`
+      ? `${step} · ${CURVE_NAMES[k.curve_id]} · ADC당 이동량은 위치별로 다릅니다.`
       : `${step} · 현재 보정 기준 ADC 1단계 ≈ ${fmt(total / span, 4)} mm (선형 추정, 판정은 이 단위로 움직입니다)`
     : "거리 기반 설정은 캘리브레이션 후 적용할 수 있습니다.";
   renderTravel();
@@ -571,10 +585,23 @@ function renderTravel() {
   $("bottomDeadzoneBand").style.height =
     `${Math.min(100, (Number($("bottomDeadzone").value) / travelMm[selected]) * 100)}%`;
 }
+function renderFixedRelease(targets) {
+  const field = $("fixedRelease");
+  const display = (id) => {
+    const point = profile.keys[id].fixed_release;
+    return point ? normalizedToMm(point, travelMm[id]).toFixed(3) : "";
+  };
+  const value = display(selected);
+  const mixed = targets.some((id) => display(id) !== value);
+  field.value = mixed ? "" : value;
+  field.placeholder = mixed ? "혼합" : "작동점과 동일";
+  field.classList.toggle("mixed-value", mixed);
+  return mixed && !(profile.keys[selected].flags & 2);
+}
 function markPerformanceDirty(id) {
   performanceDirty.add(id);
   $(id).classList.remove("mixed-value");
-  if ($(id).type === "number") $(id).required = true;
+  if ($(id).type === "number" && id !== "fixedRelease") $(id).required = true;
   controls();
 }
 for (const id of ["actuation", "rtPress", "rtRelease", "topDeadzone", "bottomDeadzone"]) {
@@ -590,6 +617,12 @@ for (const id of ["actuation", "rtPress", "rtRelease", "topDeadzone", "bottomDea
     renderTravel();
   };
 }
+$("fixedRelease").oninput = () => markPerformanceDirty("fixedRelease");
+$("followActuation").onclick = () => {
+  $("fixedRelease").value = "";
+  $("fixedRelease").placeholder = "작동점과 동일";
+  markPerformanceDirty("fixedRelease");
+};
 function renderNoiseSettings() {
   const ids = hall() ? noiseTargets($("noiseScope").value, selected) : [];
   const targetKey = ids.join(",");
@@ -625,6 +658,9 @@ $("applyNoise").onclick = () => {
   });
 };
 $("curveId").onchange = () => markPerformanceDirty("curveId");
+function strokeForCurve(id, curve) {
+  return explicitStroke[id] ? travelMm[id] : curve === HALL_CURVE_WISH ? OWLAB_TI_TRAVEL_MM : 4;
+}
 function changeTravel(value, all = false) {
   try {
     if (!hall() || measuring() || busy || batchActive()) return;
@@ -635,8 +671,10 @@ function changeTravel(value, all = false) {
     if (!Number.isFinite(n) || n < 0.1 || n > 10)
       throw Error("전체 스트로크는 0.10–10.00 mm로 입력하세요.");
     const mm = Math.round(n * 100) / 100;
-    if (all) travelMm.fill(mm);
-    else for (const id of performanceTargets()) travelMm[id] = mm;
+    for (const id of all ? travelMm.keys() : performanceTargets()) {
+      travelMm[id] = mm;
+      explicitStroke[id] = true;
+    }
     savePreferences();
     measure.reset();
     renderMeasurement();
@@ -692,7 +730,12 @@ function controls() {
   $("applyAdcTuning").title = !adcPairSupported() ? "좌우 설정을 지원하는 펌웨어가 필요합니다." :
     !latest[1]?.fresh ? "오른쪽 키보드 연결이 필요합니다." : "";
   $("noise").disabled = $("noiseScope").disabled = !mutable || !hall();
-  $("curveEditor").hidden = !curveSupported();
+  $("curveEditor").hidden = !curvePreviewAvailable() || !hall();
+  const wishSupported = connected && !!(info?.capabilities & CAP_WISH_CURVE);
+  for (const id of ["performanceWishOption", "diagnosticsWishOption"]) {
+    $(id).hidden = !wishSupported;
+    $(id).disabled = !wishSupported;
+  }
   const curveEditable = mutable && hall() && curveSupported() && !!deviceCurve && !!profile;
   curveEditor.setEnabled(curveEditable);
   for (const id of ["curveKind", "curveScope", "curvePresetLinear", "curvePresetOwlab"]) $(id).disabled = !curveEditable;
@@ -756,6 +799,9 @@ function controls() {
   $("curveId").disabled = $("owlabPreset").disabled =
     !mutable || !hall() || !(info?.capabilities & CAP_HALL_CURVE);
   $("retrigger").disabled = !mutable || !hall() || !(info?.capabilities & CAP_RETRIGGER_BEFORE_RELEASE);
+  const fixedVisible = hall() && !!(info?.capabilities & CAP_FIXED_RELEASE) && !$("rt").checked && !$("rt").indeterminate;
+  $("fixedReleaseGroup").hidden = !fixedVisible;
+  $("fixedRelease").disabled = $("followActuation").disabled = !mutable || !fixedVisible;
   $("nextKey").disabled = busy || measuring() || calibrationActive();
   document
     .querySelectorAll(".key")
@@ -976,6 +1022,7 @@ function buildProfiles(state) {
 function switchProfile(index) {
   action(async () => {
     profileState = { ...profileState, ...(await client.selectProfile(index)) };
+    measure.reset();
     await refresh();
   }, `${profileLabel(index, profileState?.names[index])}로 전환했습니다. 유지하려면 ‘키보드에 저장’을 누르세요.`);
 }
@@ -984,6 +1031,7 @@ function createProfile(index) {
   action(async () => {
     await client.createProfile(index, source);
     await client.selectProfile(index);
+    measure.reset();
     await refresh();
   }, `프로필 ${index + 1}을 ${profileLabel(source, profileState.names[source])} 설정으로 만들고 전환했습니다. 유지하려면 ‘키보드에 저장’을 누르세요.`);
 }
@@ -1027,10 +1075,9 @@ function curveTargets() {
 }
 function renderCurveReadout() {
   const key = profile?.keys[selected];
-  if (!curveSupported()) { $("curveReadout").textContent = "커스텀 곡선은 펌웨어 0.3.46 이상에서 사용할 수 있습니다."; return; }
   if (!key || !hall()) { $("curveReadout").textContent = "Hall 키를 선택하세요."; return; }
-  const names = ["직선", "Owlab Ti 근사", "커스텀"];
-  $("curveReadout").textContent = `${mappedInputLabel(selected)} · 현재 곡선 ${names[key.curve_id ?? 0]}` +
+  $("curveReadout").textContent = `${mappedInputLabel(selected)} · 현재 곡선 ${CURVE_NAMES[key.curve_id ?? 0]}` +
+    (key.curve_id === HALL_CURVE_WISH ? ` · 총 이동거리 ${travelMm[selected].toFixed(2)} mm (모델 기준 3.40 mm)` : "") +
     (key.flags & 4 ? ` · 보정 범위 ${Math.abs(key.pressed - key.released)} 코드` : " · 보정 전 (가로축 코드 미표시)") +
     " · 그래프 위에 마우스를 올리면 값을 보여 줍니다.";
 }
@@ -1046,7 +1093,11 @@ function renderCurveEditor() {
   const sign = calibrated ? Math.sign(key.pressed - key.released) : 0;
   const signal = (code) => calibrated && Number.isFinite(code) ? ((code - key.released) * sign / span) * 10000 : null;
   const raw = compare && selected < 7 ? compare.before : statusRaw;
+  $("wishCurveLabel").textContent = key?.curve_id === HALL_CURVE_WISH ? "WISH 방식 · Owlab Ti HE" : "WISH 미리보기 · Owlab Ti HE";
+  $("curveDecisionLabel").textContent = key?.curve_id === HALL_CURVE_WISH ? "펌웨어 보고 거리" : "판정값(평균·노이즈 제거)";
   curveEditor.setContext({ travelMm: hall() ? travelMm[selected] : 4, span,
+    wishTravelMm: strokeForCurve(selected, HALL_CURVE_WISH),
+    reportedTravel: calibrated && status?.fresh ? status.travel[selected % 7] : null,
     keyCurveId: key?.curve_id ?? 0, actuation: key ? key.actuation : null,
     live: { raw: signal(raw), average: compare ? signal(compare.after) : null, decision: compare ? signal(compare.decision) : null } });
   renderCurveLive(key, raw, compare);
@@ -1055,14 +1106,30 @@ function renderCurveEditor() {
 function renderCurveLive(key, raw, compare) {
   const out = $("curveLive");
   if (!key || !hall() || !Number.isFinite(raw)) { out.textContent = "센서값을 기다립니다."; return; }
-  const right = selected >= 7, names = ["직선", "Owlab Ti 근사", "커스텀"];
+  const right = selected >= 7;
   const parts = [`raw ADC ${raw}${right ? " (오른쪽 보드가 평균 후 전송)" : ""}`];
+  let preview;
+  if (key.flags & 4) {
+    const averaged = compare?.after ?? (right ? raw : null);
+    if (key.curve_id === HALL_CURVE_WISH) {
+      if (Number.isFinite(averaged)) {
+        const estimate = normalizedToMm(rawToTravel(averaged, key), travelMm[selected]);
+        parts.push(`평균 ADC 환산(데드존 전) ${estimate.toFixed(3)} mm`);
+      }
+      const status = latest[INPUTS[selected].side];
+      if (status?.fresh) parts.push(`펌웨어 보고 거리 ${normalizedToMm(status.travel[selected % 7], travelMm[selected]).toFixed(3)} mm`);
+    } else {
+      const stroke = strokeForCurve(selected, HALL_CURVE_WISH);
+      const estimate = normalizedToMm(rawToTravel(averaged ?? raw, { ...key, curve_id: HALL_CURVE_WISH }), stroke);
+      preview = `WISH 미리보기(${Number.isFinite(averaged) ? "평균" : "raw"} ADC · ${stroke.toFixed(2)} mm 축) ${estimate.toFixed(3)} mm`;
+    }
+  }
   if (compare) {
     if (!right) parts.push(`이동평균(${compare.window === 1 ? "Raw" : `${compare.window}스캔`}) ${compare.after}`);
     let judged = "";
-    if (key.flags & 4) {
+    if (key.flags & 4 && key.curve_id !== HALL_CURVE_WISH) {
       const travel = rawToTravel(compare.decision, key, deviceCurve ?? CUSTOM_CURVE_IDENTITY);
-      judged = ` → ${normalizedToMm(travel, travelMm[selected]).toFixed(3)} mm (${names[key.curve_id ?? 0]})`;
+      judged = ` → ${normalizedToMm(travel, travelMm[selected]).toFixed(3)} mm (${CURVE_NAMES[key.curve_id ?? 0]})`;
     }
     parts.push(`판정값(노이즈 데드밴드 ${key.noise_deadband}) ${compare.decision}${judged}`);
   } else if (!adcTuningSupported()) {
@@ -1072,6 +1139,7 @@ function renderCurveLive(key, raw, compare) {
   } else {
     parts.push("판정값을 읽는 중…");
   }
+  if (preview) parts.push(preview);
   out.textContent = parts.join(" · ");
 }
 $("curveCanvas").addEventListener("pointerenter", () => { $("curveReadout").dataset.hover = "1"; });
@@ -1107,8 +1175,7 @@ $("applyCurve").onclick = () => {
     telemetry.clear(); adcComparison = [];
     measure.reset(); renderMeasurement();
     renderSelection();
-    const names = ["직선", "Owlab Ti 근사", "커스텀"];
-    log(`${writeTable ? "커스텀 곡선 표를 바꾸고 " : ""}${keys.length}개 키를 ${names[kind]} 곡선으로 RAM 적용 확인 · 영구 저장은 별도입니다.`);
+    log(`${writeTable ? "커스텀 곡선 표를 바꾸고 " : ""}${keys.length}개 키를 ${CURVE_NAMES[kind]} 곡선으로 RAM 적용 확인 · 영구 저장은 별도입니다.`);
   });
 };
 const adcWindowLabel = (window) => window === 1 ? "Raw" : `${window}프레임`;
@@ -1504,10 +1571,13 @@ $("keyForm").onsubmit = (e) => {
     if (performanceDirty.has(id)) draft[field] = Number($(id).value);
   if (performanceDirty.has("enabled")) draft.enabled = $("enabled").checked;
   if (performanceDirty.has("rt")) draft.rapid_trigger = $("rt").checked;
+  if (performanceDirty.has("fixedRelease") && !$("fixedRelease").disabled)
+    draft.fixed_release = Number($("fixedRelease").value);
   if (performanceDirty.has("retrigger")) draft.retrigger_before_release = $("retrigger").checked;
   if (performanceDirty.has("curveId")) draft.curve_id = Number($("curveId").value);
   action(async () => {
-    const proposed = proposePerformanceSettings(profile, targets, travelMm, draft, info.capabilities);
+    const strokes = profile.keys.map((key, id) => strokeForCurve(id, draft.curve_id ?? key.curve_id));
+    const proposed = proposePerformanceSettings(profile, targets, strokes, draft, info.capabilities);
     const outcome = await applyPerformanceSettings(client, profile, proposed);
     if (outcome.profile) profile = outcome.profile;
     telemetry.clear();
@@ -1780,6 +1850,7 @@ $("profileFile").onchange = (e) => {
     await client.importProfile(p.device);
     if (p.travelMm) {
       travelMm = p.travelMm;
+      explicitStroke.fill(true);
       savePreferences();
     }
     telemetry.clear();
@@ -1995,6 +2066,28 @@ $("diagnosticAdc").onchange = renderDiagnostics;
 $("diagnosticAdcCompare").onchange = renderDiagnostics;
 $("diagnosticWindow").onchange = renderDiagnostics;
 $("impactScope").onchange = renderDiagnostics;
+function renderMatrix() {
+  const visible = measure.rows.size > 0;
+  $("matrixPanel").hidden = !visible;
+  if (visible) drawInterferenceMatrix($("interferenceMatrix"), measure.rows, $("matrixUnit").value,
+    info, (key) => inputBindingLabel(key, profile?.bindings));
+  else $("interferenceMatrix").replaceChildren();
+}
+$("matrixUnit").onchange = renderMatrix;
+$("clearMatrix").onclick = () => {
+  measure.rows.clear();
+  renderMatrix();
+};
+$("exportMatrix").onclick = () => {
+  if (!measure.rows.size) return;
+  const date = new Date().toISOString().replace(/[:.]/g, "-");
+  download({
+    schema: "split-studio-interference-v1",
+    source: "host-observed STATUS, held mean minus released mean",
+    keyOrder: "0..6 = L1..L7, 7..13 = R1..R7",
+    rows: [...measure.rows.values()].sort((a, b) => a.selectedKey - b.selectedKey),
+  }, `split-beat-he-interference-${date}.json`);
+};
 function renderMeasurement() {
   const now = performance.now();
   measure.tick(now);
@@ -2012,11 +2105,9 @@ function renderMeasurement() {
   const measurementView = r ? `${r.selectedKey}:${measure.ended}:${JSON.stringify(profile?.bindings)}` : null;
   if (r && drawnMeasurement !== measurementView) {
     drawnMeasurement = measurementView;
-    const pressed = r.keys[r.selectedKey];
-    const moved =
-      pressed.peakAbsDeltaRaw > Math.max(5, pressed.baseline.stddev * 3);
+    renderMatrix();
     $("interferenceSummary").textContent =
-      `다른 키 최대 변화: ${fmt(r.maxOtherDeltaRaw)} ADC${r.maxOtherMm === null ? "" : ` / ${fmt(r.maxOtherMm, 3)} mm (보정된 키만)`}${moved ? "" : " · 선택 키의 변화가 작습니다. 실제로 끝까지 눌렀는지 확인하세요."}`;
+      `다른 키 최대 변화: ${fmt(r.maxOtherDeltaRaw)} ADC${r.maxOtherMm === null ? "" : ` / ${fmt(r.maxOtherMm, 3)} mm (보정된 키만)`}${r.sourceMoved ? "" : " · 선택 키의 눌림이 확인되지 않아 비교표를 갱신하지 않았습니다."}`;
     $("interferenceRows").replaceChildren();
     for (const row of r.keys
       .filter((v) => !v.selected)
@@ -2042,6 +2133,7 @@ function renderMeasurement() {
         `0 0 0 2px rgba(255,158,156,${alpha})`;
     }
   } else if (measure.state === "idle") {
+    if (!measure.rows.size && !$("matrixPanel").hidden) renderMatrix();
     $("interferenceRows").replaceChildren();
     $("interferenceSummary").textContent = "";
     drawnMeasurement = null;
@@ -2051,10 +2143,13 @@ function renderMeasurement() {
 $("baseline").onclick = () =>
   action(async () => {
     await client.output(false);
-    measure.reset();
+    measure.resetPhase();
     renderMeasurement();
     drawnMeasurement = null;
-    measure.startBaseline(selected, profile.keys, travelMm, performance.now());
+    measure.startBaseline(selected, profile.keys, travelMm, performance.now(), {
+      capturedAt: new Date().toISOString(), boardRevision: info.board_rev,
+      leftFirmware: installedFirmware, adcSettingsLastObserved: adcApplied,
+    });
     renderMeasurement();
   }, "기준값 수집 시작. 모든 키에서 손을 떼세요.");
 $("measurePress").onclick = () => {
@@ -2067,7 +2162,7 @@ $("measurePress").onclick = () => {
   }
 };
 $("cancelMeasure").onclick = () => {
-  measure.reset();
+  measure.resetPhase();
   renderMeasurement();
   controls();
 };

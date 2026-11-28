@@ -28,6 +28,7 @@ import {
   requireKeyCapability,
   CAP_CUSTOM_CURVE,
   CAP_PROFILES,
+  CAP_FIXED_RELEASE,
   PROFILE_COUNT,
   PROFILE_NAME_BYTES,
   encodeProfileName,
@@ -258,25 +259,28 @@ export class KeyboardClient {
   async request(op, payload = new Uint8Array(), timeout = 1500) {
     // FirmwareClient owns update confirmation and sequencing. Right update
     // INFO also pauses scan/output, so it must not enter through this client.
-    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR) || op === OP.CUSTOM_CURVE || op === OP.PROFILE))
+    if (!Number.isInteger(op) || !((op >= 1 && op <= 10) || (op >= 0x40 && op <= OP.ADC_PAIR) || op === OP.CUSTOM_CURVE || op === OP.PROFILE || op === OP.KEY_EXT))
       throw Error("지원하지 않는 설정 명령입니다. 펌웨어 업데이트는 전용 업데이터를 사용하세요.");
     const curveWrite = op === OP.CUSTOM_CURVE && payload.length > 0;
+    const extendedKeyWrite = op === OP.KEY_EXT && payload.length === 22;
     const profileSelect = op === OP.PROFILE && payload[0] === 2;
-    if (([4, 5, 6, 7, 8, 10].includes(op) || op === OP.CUSTOM_CURVE || op === OP.PROFILE) && !this.identified) {
+    if (([4, 5, 6, 7, 8, 10].includes(op) || op === OP.CUSTOM_CURVE || op === OP.PROFILE || op === OP.KEY_EXT) && !this.identified) {
       this.deviceInfo = decodeInfo(await this.request(OP.INFO));
       this.identified = true;
     }
     if (op === OP.SET_BINDING)
       requireBindingCapability(decodeBinding(payload), this.deviceInfo?.capabilities ?? 0);
-    if (op === OP.SET_KEY)
-      requireKeyCapability(decodeKey(payload, this.legacyTravel), this.deviceInfo?.capabilities ?? 0);
+    if (op === OP.KEY_EXT && !(this.deviceInfo?.capabilities & CAP_FIXED_RELEASE))
+      throw Error("현재 펌웨어는 고정 해제 지점을 지원하지 않습니다.");
+    if (op === OP.SET_KEY || extendedKeyWrite)
+      requireKeyCapability(decodeKey(payload, this.legacyTravel, extendedKeyWrite), this.deviceInfo?.capabilities ?? 0);
     this.seq = (this.seq % 65535) + 1;
     try {
       const p = await this.transport.exchange(packet(op, this.seq, payload), timeout);
       if (p.op !== (op | 128) || p.seq !== this.seq)
         throw Error("거래번호 불일치");
       if (p.status) throw Error(STATUS_NAMES[p.status] || `status ${p.status}`);
-      if ([4, 5, 6, 7, 8, 10].includes(op) || curveWrite || profileSelect) this.outputEnabled = false;
+      if ([4, 5, 6, 7, 8, 10].includes(op) || extendedKeyWrite || curveWrite || profileSelect) this.outputEnabled = false;
       return p.payload;
     } catch (e) {
       this.outputEnabled = false;
@@ -350,10 +354,11 @@ export class KeyboardClient {
   async _config(read = (op, payload) => this.request(op, payload)) {
     if (!this.identified) await this._identity();
     const legacy = this.legacyTravel;
+    const extended = Boolean(this.deviceInfo.capabilities & CAP_FIXED_RELEASE);
     let keys = [],
       bindings = [];
     for (let i = 0; i < 14; i++)
-      keys.push(decodeKey(await read(OP.GET_KEY, new Uint8Array([i])), legacy));
+      keys.push(decodeKey(await read(extended ? OP.KEY_EXT : OP.GET_KEY, new Uint8Array([i])), legacy, extended));
     for (let i = 0; i < 28; i++)
       bindings.push(
         decodeBinding(await read(OP.GET_BINDING, new Uint8Array([i]))),
@@ -370,12 +375,13 @@ export class KeyboardClient {
     return this.run(() => this._config());
   }
   setKey(key) {
-    encodeKey(key); // Validate synchronously, before queueing.
+    keyRecord(key); // Validate synchronously, before queueing.
     return this.run(async () => {
       await this._identity();
       requireKeyCapability(keyRecord(key), this.deviceInfo.capabilities);
       const legacy = this.legacyTravel;
-      return decodeKey(await this.request(OP.SET_KEY, encodeKey(key, legacy)), legacy);
+      const extended = Boolean(this.deviceInfo.capabilities & CAP_FIXED_RELEASE);
+      return decodeKey(await this.request(extended ? OP.KEY_EXT : OP.SET_KEY, encodeKey(key, legacy, extended)), legacy, extended);
     });
   }
   // Firmware 0.3.46+: the shared curve_id 2 table. A write is RAM only and,
@@ -487,9 +493,10 @@ export class KeyboardClient {
       this.deviceInfo = decodeInfo(await this.request(OP.INFO));
       this.identified = true;
       const legacy = this.legacyTravel;
+      const extended = Boolean(this.deviceInfo.capabilities & CAP_FIXED_RELEASE);
       for (const k of p.keys) {
         requireKeyCapability(k, this.deviceInfo.capabilities);
-        encodeKey(k, legacy); // Older firmware: reject 0.001 mm steps before OUTPUT.
+        encodeKey(k, legacy, extended); // Check every record before OUTPUT.
       }
       for (const b of p.bindings)
         requireBindingCapability(b, this.deviceInfo.capabilities);
@@ -497,7 +504,7 @@ export class KeyboardClient {
       let count = 0;
       try {
         for (const k of p.keys) {
-          await this.request(OP.SET_KEY, encodeKey(k, legacy));
+          await this.request(extended ? OP.KEY_EXT : OP.SET_KEY, encodeKey(k, legacy, extended));
           count++;
         }
         for (const b of p.bindings) {

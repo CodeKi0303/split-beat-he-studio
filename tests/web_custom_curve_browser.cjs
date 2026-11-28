@@ -18,7 +18,8 @@ let browser;
   await page.evaluate(async () => {
     const { DemoTransport } = await import("./demo.mjs");
     const { VID, PID, USAGE_PAGE, USAGE, packet, unpackPacket } = await import("./protocol.mjs");
-    const sim = new DemoTransport();
+    const sim = new DemoTransport({ fixedRelease: true });
+    window.__wishSupport = true;
     sim.profile.keys.forEach((key) => Object.assign(key, { flags: 7, released: 1000, pressed: 3000 }));
     sim.stored = structuredClone(sim.profile);
     const device = Object.assign(new EventTarget(), {
@@ -48,7 +49,8 @@ let browser;
           response = await sim.exchange(bytes);
           if (request.op === 1 && !response.status)
             new DataView(response.payload.buffer, response.payload.byteOffset).setUint32(16,
-              new DataView(response.payload.buffer, response.payload.byteOffset).getUint32(16, true) | 0x8000, true);
+              new DataView(response.payload.buffer, response.payload.byteOffset).getUint32(16, true) |
+                0x8000 | (window.__wishSupport ? 0x04000000 : 0), true);
         }
         const encoded = packet(response.op, response.seq, response.payload, response.status);
         this.dispatchEvent(Object.assign(new Event("inputreport"), { reportId: 0, device: this, data: new DataView(encoded.buffer) }));
@@ -119,6 +121,36 @@ let browser;
   await page.waitForFunction(() => window.__sim.profile.keys[4].curve_id === 0, null, { timeout: 8000 });
   const after = await page.evaluate(() => window.__sim.customCurve);
   assert.deepEqual(after, state.curve);
+  // Select the immutable model on the existing card; no custom-table write.
+  await page.locator("#curveKind").selectOption("3");
+  await page.locator("#applyCurve").click();
+  await page.waitForFunction(() => window.__sim.profile.keys[4].curve_id === 3);
+  await page.waitForFunction(() => document.querySelector("#curveLive").textContent.includes("펌웨어 보고 거리"));
+  await page.waitForFunction(() => document.querySelector("#curveLive").textContent.includes("평균 ADC 환산(데드존 전) 0.958 mm"));
+  assert.match(await page.locator("#curveReadout").textContent(), /WISH 방식.*총 이동거리 3.40 mm/);
+  assert.equal(await page.locator("#wishCurveLegend").isVisible(), true);
+  assert.deepEqual(await page.evaluate(() => window.__sim.customCurve), state.curve);
+  await page.locator('.nav[data-tab="performance"]').click();
+  assert.equal(await page.locator("#curveId").inputValue(), "3");
+  assert.equal(await page.locator("#totalTravel").inputValue(), "3.40");
+  await page.locator("#totalTravel").fill("4.10");
+  await page.locator("#totalTravel").dispatchEvent("change");
+  await page.locator('.nav[data-tab="diagnostics"]').click();
+  await page.waitForFunction(() => document.querySelector("#curveReadout").textContent.includes("총 이동거리 4.10 mm"));
+  await page.locator("#disconnect").click();
+  await page.locator("#connect").click();
+  await page.waitForFunction(() => document.querySelector("#curveReadout").textContent.includes("총 이동거리 4.10 mm"));
+  await page.locator("#disconnect").click();
+  await page.evaluate(() => { window.__wishSupport = false; window.__sim.profile.keys[4].curve_id = 0; });
+  await page.locator("#connect").click();
+  await page.waitForFunction(() => document.querySelector("#mode").textContent.startsWith("연결됨") &&
+    !document.querySelector("#refresh").disabled);
+  assert.equal(await page.locator("#diagnosticsWishOption").evaluate(o => o.disabled && o.hidden), true);
+  assert.equal(await page.locator("#performanceWishOption").evaluate(o => o.disabled && o.hidden), true);
+  assert.equal(await page.locator("#wishCurveLegend").isVisible(), true);
+  assert.match(await page.locator("#wishCurveLabel").textContent(), /미리보기/);
+  await page.waitForFunction(() => document.querySelector("#curveLive").textContent.includes("WISH 미리보기(평균 ADC · 4.10 mm 축)"));
+  assert.equal(await page.evaluate(() => window.__sim.profile.keys[4].curve_id), 0);
   assert.deepEqual(errors, []);
-  console.log("Custom curve: mouse drawing, monotonic table, apply to all keys, per-key linear, output restore PASS (fake HID only)");
+  console.log("Custom curve, WISH model, firmware vs pre-deadzone travel, per-key strokes, reconnect and older firmware gates PASS (fake HID only)");
 })().catch((error) => { console.error(error); process.exitCode = 1; }).finally(async () => { await browser?.close(); });

@@ -78,6 +78,8 @@ export class SampledRT {
     int(c.actuation, 1, TRAVEL_MAX, "작동점"); int(c.rt_press, 1, TRAVEL_MAX, "눌림 RT");
     int(c.rt_release, 1, TRAVEL_MAX, "복귀 RT"); int(c.top_deadzone, 0, c.actuation - 1, "상단 데드존");
     int(c.bottom_deadzone, 0, TRAVEL_MAX - c.actuation, "하단 데드존");
+    const release = int(c.fixed_release ?? 0, 0, c.actuation - 1, "고정 해제 지점");
+    if (release && release < c.top_deadzone) throw Error("고정 해제 지점은 상단 데드존 이상이어야 합니다.");
     int(c.noise_deadband, 0, 100, "센서 데드밴드");
     validateCurveId(c.curve_id ?? 0);
     this.valid = Boolean(c.flags & 4) && Math.abs(c.pressed - c.released) >= 128;
@@ -95,7 +97,8 @@ export class SampledRT {
     if (!(c.flags & 1) || travel <= c.top_deadzone) {
       this.pressed = false; this.rapid = false; this.extreme = travel;
     } else if (!(c.flags & 2)) {
-      this.pressed = travel >= c.actuation; this.rapid = false; this.extreme = travel;
+      this.pressed = this.pressed && c.fixed_release ? travel > c.fixed_release : travel >= c.actuation;
+      this.rapid = false; this.extreme = travel;
     } else if (c.bottom_deadzone && travel >= TRAVEL_MAX - c.bottom_deadzone) {
       this.pressed = true; this.rapid = true; this.extreme = TRAVEL_MAX - c.bottom_deadzone;
     } else if (!this.rapid) {

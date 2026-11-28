@@ -215,6 +215,11 @@ export class InterferenceSession {
     this.reset();
   }
   reset() {
+    this.rows = new Map();
+    this.resetPhase();
+  }
+  resetPhase() {
+    this.completed = null;
     this.state = "idle";
     this.error = "";
     this.baseline = null;
@@ -226,7 +231,7 @@ export class InterferenceSession {
     this.ended = null;
     this.store = null;
   }
-  startBaseline(selectedKey, keyConfigs, totalTravelsMm, nowMs) {
+  startBaseline(selectedKey, keyConfigs, totalTravelsMm, nowMs, conditions = null) {
     keyIndex(selectedKey);
     finite(nowMs, "start time");
     if (
@@ -236,7 +241,8 @@ export class InterferenceSession {
       throw Error("14 Hall key configurations and travel lengths required");
     for (let key = 0; key < HALL_COUNT; key++)
       validateTotalTravel(totalTravelsMm[key]);
-    this.reset();
+    this.resetPhase();
+    this.conditions = structuredClone(conditions);
     this.selectedKey = selectedKey;
     this.keyConfigs = keyConfigs.map((key) => ({ ...key }));
     this.totalTravelsMm = [...totalTravelsMm];
@@ -314,6 +320,8 @@ export class InterferenceSession {
       this.pressedTravel = samples.map((values, key) =>
         summarizeTravel(values, this.keyConfigs[key], this.totalTravelsMm[key]));
       this.state = "done";
+      const comparison = this.result();
+      if (comparison.sourceMoved) this.rows.set(this.selectedKey, comparison);
     }
     return this.state;
   }
@@ -327,6 +335,7 @@ export class InterferenceSession {
   }
   result() {
     if (this.state !== "done") return null;
+    if (this.completed) return this.completed;
     const keys = this.baseline.map((baseline, key) => {
       const pressed = this.pressed[key];
       const meanDeltaRaw = pressed.mean - baseline.mean;
@@ -340,6 +349,7 @@ export class InterferenceSession {
       return {
         key,
         selected: key === this.selectedKey,
+        calibratedSpanRaw: span,
         baseline,
         pressed,
         meanDeltaRaw,
@@ -360,8 +370,16 @@ export class InterferenceSession {
       };
     });
     const others = keys.filter((key) => !key.selected);
-    return {
+    const source = keys[this.selectedKey];
+    const signedSpan = calibratedSpan(this.keyConfigs[this.selectedKey]);
+    // The held mean must move beyond the idle noise in the press direction.
+    // One spike during a failed repeat must not overwrite a good row.
+    const sourceDelta = signedSpan === null ? Math.abs(source.meanDeltaRaw)
+      : Math.sign(signedSpan) * source.meanDeltaRaw;
+    this.completed = {
       selectedKey: this.selectedKey,
+      conditions: this.conditions,
+      sourceMoved: sourceDelta > Math.max(5, source.baseline.stddev * 3),
       durationMs: this.durationMs,
       keys,
       maxOtherDeltaRaw: Math.max(...others.map((key) => key.peakAbsDeltaRaw)),
@@ -380,5 +398,6 @@ export class InterferenceSession {
           )
         : null,
     };
+    return this.completed;
   }
 }
